@@ -5,6 +5,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
 import { PendingSignup } from './features/signup/pending-signup';
 import { SelectedStore } from './core/tenant/selected-store';
+import { QuoteDraft } from './features/quote/quote-draft';
 
 /** GET /api/identity/memberships/mine. Mirrors MyMembershipDto in C#. */
 interface MyMembership {
@@ -65,6 +66,8 @@ interface MyMembership {
       <nav class="row nav" aria-label="Main">
         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
         <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
+        <a routerLink="/quote" routerLinkActive="active" data-testid="nav-quote">Quote@if (draft.count()) { <span class="count">{{ draft.count() }}</span> }</a>
+        <a routerLink="/quotes" routerLinkActive="active">My quotes</a>
         <a routerLink="/me" routerLinkActive="active">Who am I</a>
       </nav>
     </header>
@@ -119,6 +122,8 @@ interface MyMembership {
     }
     .nav a:hover { color: var(--bp-ink); background: var(--bp-surface-muted); }
     .nav a.active { color: var(--bp-accent); background: var(--bp-accent-soft); font-weight: 600; }
+    .nav .count { margin-left: .35rem; padding: 0 .45rem; border-radius: 999px; background: var(--bp-accent); color: var(--bp-on-accent); font-size: .75rem; font-weight: 700; }
+    .nav { overflow-x: auto; }
 
     @media (max-width: 640px) {
       .row { gap: .5rem; padding-left: 1rem; padding-right: 1rem; }
@@ -143,6 +148,7 @@ export class App {
   );
 
   protected readonly selected = inject(SelectedStore);
+  protected readonly draft = inject(QuoteDraft);
 
   /** The stores this user belongs to; the picker shows only when there are two or more. */
   protected readonly stores = httpResource<MyMembership[]>(

@@ -379,3 +379,37 @@ public sealed class RoofEstimatorApiTests(QuotesFactory f) : IClassFixture<Quote
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
     }
 }
+
+public sealed class PreviewTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    [Fact]
+    public async Task Preview_prices_exactly_like_create_but_stores_nothing()
+    {
+        var body = new { lines = new[] { new { sku = "PAINT", quantity = 3m }, new { sku = "LABOR", quantity = 2.5m } } };
+        var before = (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count;
+
+        var preview = (await (await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", body)).Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal(before, (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count);
+
+        var created = (await (await _f.As("alice").PostAsJsonAsync("/api/quotes", body)).Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal((created.Subtotal, created.Tax, created.Total), (preview.Subtotal, preview.Tax, preview.Total));
+        Assert.Equal(289.50m, preview.Total);
+        Assert.Equal("preview", preview.Status);
+    }
+
+    [Fact]
+    public async Task Preview_needs_only_quotes_read()
+    {
+        var r = await _f.As("bob").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "PAINT", quantity = 1m } } });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);   // bob is read-only staff; creating stays 403
+    }
+
+    [Fact]
+    public async Task Preview_reports_the_same_errors_as_create()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "DECK", quantity = 1m } } });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+    }
+}

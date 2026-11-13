@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { CompareSelection, MAX_COMPARE } from '../compare/compare';
+import { QuoteDraft } from '../quote/quote-draft';
 import { describeError } from '../../core/api/describe-error';
 import { Category, categoriesResource, productsResource } from './catalog.api';
 import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from './picker';
@@ -113,6 +114,9 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
                 <p class="desc">{{ p.description }}</p>
               }
               <div class="price" data-testid="price">{{ p.listPrice | currency: p.currency }}</div>
+              <button type="button" class="btn" (click)="draft.add(p.sku)" [attr.data-testid]="'add-' + p.sku">
+                {{ draft.quantityOf(p.sku) ? 'Add another (' + draft.quantityOf(p.sku) + ' in quote)' : 'Add to quote' }}
+              </button>
               @if (p.category !== 'labour' && p.category !== 'other') {
                 <a class="see-it" [routerLink]="['/visualize']" [queryParams]="{ sku: p.sku }" [attr.data-testid]="'visualize-' + p.sku">See it in a room</a>
               }
@@ -213,6 +217,7 @@ export class CatalogPage {
   protected readonly placeholders = [1, 2, 3, 4, 5, 6];
 
   protected readonly compare = inject(CompareSelection);
+  protected readonly draft = inject(QuoteDraft);
   protected readonly maxCompare = MAX_COMPARE;
 
   protected readonly category = signal<string | null>(null);

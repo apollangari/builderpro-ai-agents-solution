@@ -34,6 +34,8 @@ public static class QuoteEndpoints
         api.MapPost("/", CreateAsync).WithSummary("Price and store a draft quote. Prices come from the catalog, totals from QuotePricer.");
         api.MapGet("/", ListAsync).WithSummary("Recent quotes: a customer's own, or the whole tenant's for staff.");
         api.MapGet("/{id:guid}", GetAsync).WithSummary("One quote. Another tenant's (or customer's) quote is a plain 404.");
+        api.MapPost("/preview", PreviewAsync)
+            .WithSummary("Price a whole quote exactly like POST /api/quotes would, without storing it (quotes.read).");
         api.MapPost("/estimators/roof", RoofAsync)
             .WithSummary("Roof take-off (2g): footprint, pitch, waste, edges -> squares, bundles, rolls, drip edge. Quantities only, no prices.");
         api.MapPost("/estimates", EstimatesAsync)
@@ -46,26 +48,51 @@ public static class QuoteEndpoints
         CreateQuoteRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog,
         IQuoteStore store, IConfiguration config, TimeProvider clock, AuthOptions auth, CancellationToken ct)
     {
+        var (tenant, priced, problem) = await PriceRequestAsync(request, http, tenants, catalog, config, WriteScope, ct);
+        if (problem is not null) return problem;
+
+        var user = ClaimsNormalizer.FromPrincipal(http.User, auth);
+        var quote = new Quote(Guid.NewGuid(), tenant!.TenantId!, tenant.CustomerId, user.UserKey, "draft", priced!, clock.GetUtcNow());
+        await store.CreateAsync(quote, ct);
+
+        return Results.Created($"/api/quotes/{quote.Id}", ToDto(quote));
+    }
+
+    /// <summary>Exactly what POST /api/quotes would price, without storing it (2m quote builder).</summary>
+    internal static async Task<IResult> PreviewAsync(
+        CreateQuoteRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog, IConfiguration config, TimeProvider clock, CancellationToken ct)
+    {
+        var (tenant, priced, problem) = await PriceRequestAsync(request, http, tenants, catalog, config, ReadScope, ct);
+        return problem ?? Results.Ok(ToDto(new Quote(Guid.Empty, tenant!.TenantId!, tenant.CustomerId, "", "preview", priced!, clock.GetUtcNow())));
+    }
+
+    /// <summary>
+    /// The ONE pricing path for create and preview: tenant + scope, SKU shape, catalog prices
+    /// (never the request's), QuotePricer. Returns the priced quote or the problem to send back.
+    /// </summary>
+    private static async Task<(TenantLookup? Tenant, PricedQuote? Priced, IResult? Problem)> PriceRequestAsync(
+        CreateQuoteRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog, IConfiguration config, string scope, CancellationToken ct)
+    {
         var tenant = await tenants.ResolveAsync(http, ct);
-        if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
-        if (!tenant.HasScope(WriteScope)) return Problem(StatusCodes.Status403Forbidden, "missing_scope", $"Creating quotes needs the {WriteScope} scope.");
+        if (!tenant.Resolved) return (null, null, Problem(tenant.Status, tenant.Code, "Could not determine your tenant."));
+        if (!tenant.HasScope(scope)) return (null, null, Problem(StatusCodes.Status403Forbidden, "missing_scope", $"This needs the {scope} scope."));
 
         var lines = request.Lines ?? [];
         var shapeErrors = lines
             .Select((l, i) => ClaimsNormalizer.IsIdentifier(l.Sku) ? null : new QuoteErrorDto("invalid_sku", "sku is not a valid identifier.", i))
             .OfType<QuoteErrorDto>()
             .ToArray();
-        if (shapeErrors.Length > 0) return Invalid(shapeErrors);
+        if (shapeErrors.Length > 0) return (null, null, Invalid(shapeErrors));
 
         var products = await catalog.GetAsync(http, ct);
-        if (products is null) return Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced.");
+        if (products is null) return (null, null, Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced."));
 
         // SKUs the caller's tenant doesn't sell (or that are inactive) are reported, never guessed.
         var unknown = lines
             .Select((l, i) => products.ContainsKey(l.Sku) ? null : new QuoteErrorDto("unknown_sku", $"{l.Sku} is not in your catalog.", i))
             .OfType<QuoteErrorDto>()
             .ToArray();
-        if (unknown.Length > 0) return Invalid(unknown);
+        if (unknown.Length > 0) return (null, null, Invalid(unknown));
 
         var input = new QuoteInput(
             [.. lines.Select(l =>
@@ -76,13 +103,9 @@ public static class QuoteEndpoints
             TaxRateFor(tenant.TenantId!, config));
 
         var result = QuotePricer.Price(input);
-        if (!result.Succeeded) return Invalid([.. result.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))]);
-
-        var user = ClaimsNormalizer.FromPrincipal(http.User, auth);
-        var quote = new Quote(Guid.NewGuid(), tenant.TenantId!, tenant.CustomerId, user.UserKey, "draft", result.Quote!, clock.GetUtcNow());
-        await store.CreateAsync(quote, ct);
-
-        return Results.Created($"/api/quotes/{quote.Id}", ToDto(quote));
+        return result.Succeeded
+            ? (tenant, result.Quote, null)
+            : (null, null, Invalid([.. result.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))]));
     }
 
     internal static async Task<IResult> GetAsync(Guid id, HttpContext http, ITenantLookup tenants, IQuoteStore store, CancellationToken ct)
