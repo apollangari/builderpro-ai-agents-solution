@@ -55,9 +55,11 @@ const rng = (seedText) => {
 };
 
 const W = 400, H = 300;
+// bg = null: transparent, for products the visualizer places as objects in a scene (sheds, 2l).
 const frame = (inner, bg = '#f5f1e8') =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img">` +
-  `<rect width="${W}" height="${H}" fill="${bg}"/>${inner}</svg>\n`;
+  (bg ? `<rect width="${W}" height="${H}" fill="${bg}"/>` : '') +
+  `${inner}</svg>\n`;
 
 // ---------- drawings per category ----------
 const draw = {
@@ -116,8 +118,9 @@ const draw = {
     const boards = p.Attributes.material === 'metal'
       ? Array.from({ length: 11 }, (_, i) => `<line x1="${105 + i * 19}" y1="150" x2="${105 + i * 19}" y2="250" stroke="${shade(wall, -0.12)}" stroke-width="2"/>`).join('')
       : Array.from({ length: 5 }, (_, i) => `<line x1="100" y1="${168 + i * 18}" x2="300" y2="${168 + i * 18}" stroke="${shade(wall, -0.12)}" stroke-width="2"/>`).join('');
-    return frame(`<rect x="0" y="250" width="${W}" height="50" fill="#a8b88f"/><rect x="100" y="150" width="200" height="100" fill="${wall}"/>${boards}` +
-      `<path d="${roofPath}" fill="${roof}"/><rect x="175" y="185" width="50" height="65" fill="${shade(wall, -0.3)}"/><rect x="120" y="170" width="34" height="26" fill="#cfe1ea" stroke="#fff" stroke-width="3"/>`);
+    // Transparent and no lawn: the visualizer's backyard supplies the ground (2l).
+    return frame(`<rect x="100" y="150" width="200" height="100" fill="${wall}"/>${boards}` +
+      `<path d="${roofPath}" fill="${roof}"/><rect x="175" y="185" width="50" height="65" fill="${shade(wall, -0.3)}"/><rect x="120" y="170" width="34" height="26" fill="#cfe1ea" stroke="#fff" stroke-width="3"/>`, null);
   },
   flooring(p, r) {
     const base = colorOf(p);
@@ -168,9 +171,9 @@ const draw = {
   fencing(p, r) {
     const c = colorOf(p);
     let pickets = '';
-    for (let x = 20; x < W - 20; x += 30) pickets += `<path d="M${x} 270 L${x} 70 L${x + 13} 55 L${x + 26} 70 L${x + 26} 270 Z" fill="${shade(c, (r() - 0.5) * 0.1)}"/>`;
-    return frame(`<rect x="0" y="0" width="${W}" height="${H}" fill="#d9e6ef"/><rect x="0" y="260" width="${W}" height="40" fill="#a8b88f"/>${pickets}` +
-      `<rect x="15" y="110" width="370" height="12" fill="${shade(c, -0.2)}"/><rect x="15" y="210" width="370" height="12" fill="${shade(c, -0.2)}"/>`);
+    // One full-width panel on a transparent background, so the visualizer can line panels up (2l).
+    for (let x = 0; x < W; x += 30) pickets += `<path d="M${x + 2} 300 L${x + 2} 70 L${x + 15} 55 L${x + 28} 70 L${x + 28} 300 Z" fill="${shade(c, (r() - 0.5) * 0.1)}"/>`;
+    return frame(`${pickets}<rect x="0" y="120" width="${W}" height="12" fill="${shade(c, -0.2)}"/><rect x="0" y="230" width="${W}" height="12" fill="${shade(c, -0.2)}"/>`, null);
   },
 };
 

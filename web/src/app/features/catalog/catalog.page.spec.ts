@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { CatalogPage } from './catalog.page';
 
 const products = [
@@ -52,7 +53,8 @@ describe('CatalogPage (product picker)', () => {
   }
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [CatalogPage], providers: [provideHttpClient(), provideHttpClientTesting()] });
+    sessionStorage.clear(); // compare selection is per tab
+    TestBed.configureTestingModule({ imports: [CatalogPage], providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()] });
     http = TestBed.inject(HttpTestingController);
   });
 
@@ -74,6 +76,7 @@ describe('CatalogPage (product picker)', () => {
     expect(cards[0]!.querySelector('img')?.getAttribute('alt')).toBe('Interior paint, white');
     expect(cards[1]!.querySelector('img')).toBeNull();
     expect(cards[0]!.querySelector('[data-testid="attributes"]')?.textContent).toContain('eggshell');
+    expect(cards[0]!.querySelector('[data-testid="visualize-PAINT-1G"]')?.getAttribute('href')).toBe('/visualize?sku=PAINT-1G');
     expect(el.querySelector('[data-testid="count"]')?.textContent).toContain('3 of 3');
   });
 

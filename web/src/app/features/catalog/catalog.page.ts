@@ -113,6 +113,9 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
                 <p class="desc">{{ p.description }}</p>
               }
               <div class="price" data-testid="price">{{ p.listPrice | currency: p.currency }}</div>
+              @if (p.category !== 'labour' && p.category !== 'other') {
+                <a class="see-it" [routerLink]="['/visualize']" [queryParams]="{ sku: p.sku }" [attr.data-testid]="'visualize-' + p.sku">See it in a room</a>
+              }
               @if (p.category !== 'labour') {
                 <label class="compare-toggle">
                   <input
@@ -192,6 +195,7 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
     .desc { margin: 0; color: var(--bp-ink-muted); font-size: .88rem; }
     .price { margin-top: auto; padding-top: .6rem; font-family: var(--bp-font-heading); font-size: 1.4rem; font-weight: 700; color: var(--bp-accent); }
     .empty { grid-column: 1 / -1; text-align: center; color: var(--bp-ink-muted); padding: 2.5rem; }
+    .see-it { display: inline-flex; align-items: center; min-height: var(--bp-tap); font-weight: 600; font-size: .9rem; }
     .compare-toggle { display: inline-flex; align-items: center; gap: .5rem; min-height: var(--bp-tap); font-weight: 600; font-size: .9rem; cursor: pointer; }
     .compare-toggle input { width: 1.2rem; height: 1.2rem; accent-color: var(--bp-accent); }
     .compare-bar {

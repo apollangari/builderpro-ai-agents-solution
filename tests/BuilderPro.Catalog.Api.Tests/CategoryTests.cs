@@ -22,6 +22,15 @@ public sealed class CategoryRulesTests
     }
 
     [Fact]
+    public void Every_scene_is_one_the_web_visualizer_draws()
+    {
+        // Keep in sync with SCENES in web/src/app/features/visualize/scene.ts ("none" = no scene).
+        string[] drawn = ["kitchen", "house-roof", "backyard", "room-floor", "room-wall", "house-front", "none"];
+        Assert.All(Categories.All, c => Assert.Contains(c.Scene, drawn));
+        Assert.All(Categories.All.Where(c => c.Id is not ("labour" or "other")), c => Assert.NotEqual("none", c.Scene));
+    }
+
+    [Fact]
     public void A_complete_valid_product_has_no_errors()
     {
         Assert.Empty(Categories.Validate("countertops", A(("material", "quartz"), ("color", "White"), ("finish", "polished"), ("thicknessCm", "3"))));

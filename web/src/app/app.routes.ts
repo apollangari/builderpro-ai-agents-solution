@@ -16,6 +16,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/catalog/catalog.page').then((m) => m.CatalogPage),
   },
   {
+    path: 'visualize',
+    canActivate: [autoLoginPartialRoutesGuard],
+    loadComponent: () => import('./features/visualize/visualize.page').then((m) => m.VisualizePage),
+  },
+  {
     path: 'compare',
     canActivate: [autoLoginPartialRoutesGuard],
     loadComponent: () => import('./features/compare/compare.page').then((m) => m.ComparePage),

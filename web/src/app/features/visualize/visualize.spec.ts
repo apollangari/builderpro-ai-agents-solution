@@ -1,0 +1,114 @@
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
+import { Category, Product } from '../catalog/catalog.api';
+import { SCENES, SceneId, placementFor, sceneFor, swatchFor } from './scene';
+import { SceneComponent } from './scene.component';
+import { VisualizePage } from './visualize.page';
+
+const product = (sku: string, category: string, extra: Partial<Product> = {}): Product => ({
+  sku, name: sku, description: null, unit: 'each', listPrice: 10, currency: 'USD', category,
+  imageUrl: `/products/${sku.toLowerCase()}.svg`, attributes: {}, ...extra,
+});
+
+const cat = (id: string, scene: string): Category => ({ id, name: id, defaultUnit: 'each', scene, attributes: [], typical: null });
+
+/** Every category the platform has, and the scene + surface it must end up on. */
+const CASES: [string, SceneId, string][] = [
+  ['countertops', 'kitchen', 'countertop'],
+  ['cabinets', 'kitchen', 'cabinets'],
+  ['roofing', 'house-roof', 'roof'],
+  ['sheds', 'backyard', 'shed'],
+  ['decking', 'backyard', 'deck'],
+  ['fencing', 'backyard', 'fence'],
+  ['flooring', 'room-floor', 'floor'],
+  ['paint', 'room-wall', 'wall'],
+  ['windows-doors', 'house-front', 'opening'],
+];
+
+describe('scene mapping', () => {
+  it.each(CASES)('%s -> %s scene, %s surface', (category, scene, surface) => {
+    expect(sceneFor(cat(category, scene))).toBe(scene);
+    expect(placementFor(category)?.surface).toBe(surface);
+  });
+
+  it('labour and other have no scene', () => {
+    expect(sceneFor(cat('labour', 'none'))).toBeNull();
+    expect(placementFor('labour')).toBeNull();
+  });
+
+  it('paint swatches follow the colour name', () => {
+    expect(swatchFor({ name: 'x', attributes: { color: 'Sage green' } })).toBe('#9caf88');
+    expect(swatchFor({ name: 'x', attributes: { color: 'Mystery' } })).toBe('#d9cdb8');
+  });
+
+  it('every scene is covered by at least one category', () => {
+    expect(new Set(CASES.map(([, s]) => s))).toEqual(new Set(SCENES));
+  });
+});
+
+describe('SceneComponent', () => {
+  it.each(CASES)('draws %s products on the %s scene (%s surface)', async (category, scene, surface) => {
+    const fixture = TestBed.createComponent(SceneComponent);
+    fixture.componentRef.setInput('scene', scene);
+    fixture.componentRef.setInput('product', product('P', category, { attributes: { color: 'Sage green' } }));
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('svg')?.getAttribute('data-scene')).toBe(scene);
+    const target = el.querySelector(`[data-surface="${surface}"]`)!;
+    expect(target).not.toBeNull();
+    if (category === 'paint') {
+      expect(target.getAttribute('fill')).toBe('#9caf88');                 // colour
+    } else if (['countertops', 'roofing', 'decking', 'flooring', 'cabinets'].includes(category)) {
+      expect(target.getAttribute('fill')).toMatch(/^url\(#bp-scene-pattern-\d+\)$/); // product texture
+    } else {
+      expect(target.getAttribute('href')).toBe('/products/p.svg');          // product image as an object
+    }
+  });
+});
+
+describe('VisualizePage', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ imports: [VisualizePage], providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()] });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  async function render(sku: string | undefined) {
+    const fixture = TestBed.createComponent(VisualizePage);
+    fixture.componentRef.setInput('sku', sku);
+    TestBed.tick();
+    http.expectOne('/api/catalog/products').flush([product('CT-Q', 'countertops'), product('CT-G', 'countertops'), product('SHED', 'sheds')]);
+    http.expectOne('/api/catalog/categories').flush([cat('countertops', 'kitchen'), cat('sheds', 'backyard')]);
+    await fixture.whenStable();
+    return { fixture, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('shows the product from ?sku= in its default scene, with same-category options', async () => {
+    const { el } = await render('CT-Q');
+
+    expect(el.querySelector('[data-testid="scene"]')?.getAttribute('data-scene')).toBe('kitchen');
+    expect([...el.querySelectorAll('[role="radio"]')].map((o) => o.getAttribute('data-testid'))).toEqual(['option-CT-Q', 'option-CT-G']);
+    expect(el.querySelector('[data-testid="option-CT-Q"]')?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('switching option re-renders the scene with the other product', async () => {
+    const { fixture, el } = await render('CT-Q');
+
+    el.querySelector<HTMLButtonElement>('[data-testid="option-CT-G"]')!.click();
+    await fixture.whenStable();
+
+    expect(el.querySelector('h1')?.textContent).toContain('CT-G');
+    expect(el.querySelector('pattern image')?.getAttribute('href')).toBe('/products/ct-g.svg');
+  });
+
+  it('without a known product it points back to the catalog', async () => {
+    const { el } = await render('NOPE');
+    expect(el.querySelector('[data-testid="visualize-empty"]')).not.toBeNull();
+  });
+});
