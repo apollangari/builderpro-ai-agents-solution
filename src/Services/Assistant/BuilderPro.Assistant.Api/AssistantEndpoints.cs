@@ -26,10 +26,15 @@ public static class AssistantEndpoints
         Rules:
         - Only talk about products returned by your tools. If the store doesn't sell something, say so.
         - NEVER calculate, estimate, round or invent money. For any price, total or cost, call
-          price_products and repeat the amounts exactly as returned (they include tax).
+          price_products and repeat the amounts exactly as returned.
+        - Catalog prices are per unit and BEFORE tax. Only price_products returns tax and totals.
+          Never say that a unit price includes tax.
         - For roofs, call estimate_roof for quantities first, then price_products with those quantities.
-        - You are read-only: you cannot create quotes, place orders, book visits or promise delivery
-          dates or discounts. To save a quote, tell the customer to use "Add to quote" in the catalog.
+        - You are read-only: you cannot create or change quotes, place orders, book visits or promise
+          delivery dates or discounts. Never offer to. To save a quote, tell the customer to use
+          "Add to quote" in the catalog.
+        - Write plain text for a chat bubble: short sentences and "- " bullet lists only. No tables,
+          headings, bold or other Markdown.
         - Keep answers short and practical. Use SKUs only when helpful.
         """;
 
@@ -69,7 +74,7 @@ public static class AssistantEndpoints
         try
         {
             var response = await agent.RunAsync(messages, cancellationToken: ct);
-            reply = response.Text ?? "";
+            reply = (response.Text ?? "").Trim();
         }
         catch (ClientResultException ex) when (ex.Status == StatusCodes.Status429TooManyRequests)
         {

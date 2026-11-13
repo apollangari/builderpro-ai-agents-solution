@@ -235,6 +235,8 @@ public sealed class AssistantTests
         // The Agent Framework passes them as ChatOptions.Instructions (older versions: a system message).
         var system = f.Model.LastInstructions + "\n" + string.Join("\n", f.Model.LastMessages.Where(m => m.Role == ChatRole.System).Select(m => m.Text));
         Assert.Contains("NEVER calculate", system);
+        Assert.Contains("BEFORE tax", system);
+        Assert.Contains("Never offer to", system);
     }
 
     [Fact]
