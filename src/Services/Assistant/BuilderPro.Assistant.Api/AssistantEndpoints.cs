@@ -91,7 +91,7 @@ public static class AssistantEndpoints
         try
         {
             var response = await agent.RunAsync(messages, cancellationToken: ct);
-            return ((response.Text ?? "").Trim(), null);
+            return (ChatText.Clean(response.Text), null);
         }
         catch (ClientResultException ex) when (ex.Status == StatusCodes.Status429TooManyRequests)
         {

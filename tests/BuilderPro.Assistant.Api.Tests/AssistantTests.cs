@@ -449,3 +449,17 @@ public sealed class ConciergeTests
         Assert.Contains("\"roof\":null", json);
     }
 }
+
+public sealed class ChatTextTests
+{
+    [Fact]
+    public void Markdown_seen_live_is_cleaned_for_the_chat_bubble()
+    {
+        var raw = "Here's your draft:\r\n\r\n\r\n**Total:** $7,245.71\n\n\n\n## Next\n- **Edge** - $18.00/ft   \nDone";
+        Assert.Equal("Here's your draft:\n\nTotal: $7,245.71\n\nNext\n- Edge - $18.00/ft\nDone", ChatText.Clean(raw));
+    }
+
+    [Fact]
+    public void Money_survives_cleaning() =>
+        Assert.Equal(PriceGuard.AmountsIn("**$2,890.28**"), PriceGuard.AmountsIn(ChatText.Clean("**$2,890.28**")));
+}
