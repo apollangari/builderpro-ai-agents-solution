@@ -145,3 +145,41 @@ a {
 a:hover {
   color: var(--bp-accent-hover);
 }
+
+/*
+ * "New here? Create account" at the TOP of the sign-in card (right under the title), not buried
+ * under the form and Google. CSS only. In keycloak.v2 the form, the "Or continue with" band, the
+ * Google button and the sign-up info (#kc-info) all live in .pf-v5-c-login__main-body, so that
+ * becomes a flex column and its footer's children (display: contents) are re-ordered:
+ *   1 sign-up banner, 2 form, 3 "Or continue with", 4 Google.
+ * Scoped with :has(#kc-registration) to pages that show the sign-up link.
+ */
+.pf-v5-c-login__main-body:has(#kc-registration) {
+  display: flex;
+  flex-direction: column;
+}
+
+.pf-v5-c-login__main-body:has(#kc-registration) > #kc-form { order: 2; }
+.pf-v5-c-login__main-body:has(#kc-registration) > .pf-v5-c-login__main-footer { display: contents; }
+.pf-v5-c-login__main-body:has(#kc-registration) .pf-v5-c-login__main-footer-band:not(#kc-info) { order: 3; margin-top: 1.25rem; }
+.pf-v5-c-login__main-body:has(#kc-registration) #kc-social-providers { order: 4; }
+
+.pf-v5-c-login__main-body:has(#kc-registration) #kc-info {
+  order: 1;
+  margin: 0 0 1.25rem;
+  padding: .5rem 1rem;
+  border: 0;
+  border-radius: var(--bp-radius-md);
+  background: var(--bp-accent-soft);
+  color: var(--bp-ink);
+  text-align: center;
+  font-weight: 500;
+}
+
+.pf-v5-c-login__main-body:has(#kc-registration) #kc-info a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 700;
+  color: var(--bp-accent);
+}
