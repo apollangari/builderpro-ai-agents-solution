@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/AppHost/">
+    <Project Path="src/AppHost/BuilderPro.AppHost/BuilderPro.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="src/ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />
+    <Project Path="src/BuildingBlocks/BuilderPro.Security/BuilderPro.Security.csproj" />
+  </Folder>
+  <Folder Name="/Gateway/">
+    <Project Path="src/Gateway/BuilderPro.Gateway/BuilderPro.Gateway.csproj" />
+  </Folder>
+  <Folder Name="/Services/">
+    <Project Path="src/Services/Me/BuilderPro.Me.Api/BuilderPro.Me.Api.csproj" />
+    <Project Path="src/Services/Identity/BuilderPro.Identity.Api/BuilderPro.Identity.Api.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/BuilderPro.Me.Api.Tests/BuilderPro.Me.Api.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Gateway.Tests/BuilderPro.Gateway.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Identity.Api.Tests/BuilderPro.Identity.Api.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Security.Tests/BuilderPro.Security.Tests.csproj" />
+  </Folder>
+</Solution>

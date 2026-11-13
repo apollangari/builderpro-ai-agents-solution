@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Building block shared by every service AND the gateway: generic OIDC/JWT validation.
+    Same code for Keycloak (dev) and Entra (prod); only configuration differs.
+    No business logic belongs here.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+</Project>

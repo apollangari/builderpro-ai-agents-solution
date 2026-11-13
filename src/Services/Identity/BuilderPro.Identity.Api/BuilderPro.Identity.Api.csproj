@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    Identity service: owns tenant MEMBERSHIPS (who belongs to which tenant, with which scopes).
+    Adapted from builderpro-ai-platform/platform/identity, trimmed to memberships for now.
+    Database-per-service: only this service reads or writes "identitydb".
+  -->
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/BuilderPro.Security/BuilderPro.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuilderPro.Identity.Api.Tests" />
+  </ItemGroup>
+</Project>

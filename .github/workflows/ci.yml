@@ -1,0 +1,75 @@
+name: ci
+
+# Runs on every branch in the flow and on every PR into a long-lived branch.
+#   feature/* -> development -> staging -> main (production)
+#   hotfix/*  -> main, then back-merged into development
+on:
+  push:
+    branches: [main, staging, development, "feature/**", "hotfix/**"]
+  pull_request:
+    branches: [main, staging, development]
+
+permissions:
+  contents: read
+  pull-requests: write   # lets a failing build post its error log on the PR
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    name: .NET build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Restore, build, test
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            dotnet restore BuilderPro.slnx &&
+            dotnet build BuilderPro.slnx --no-restore -c Release &&
+            dotnet test BuilderPro.slnx --no-build -c Release --logger "console;verbosity=normal"
+          } 2>&1 | tee dotnet.log
+      - name: Post failure log on the PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const lines = fs.existsSync('dotnet.log') ? fs.readFileSync('dotnet.log', 'utf8').split('\n') : ['(no log)'];
+            const errors = lines.filter(l => /error|FAILED|Failed /.test(l)).slice(0, 80);
+            const tail = lines.slice(-60);
+            const body = ['### ❌ .NET build/test failed', '', '**Error lines**', '```', ...errors, '```', '', '<details><summary>Last 60 lines</summary>', '', '```', ...tail, '```', '</details>'].join('\n');
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body: body.slice(0, 60000) });
+
+  web:
+    name: Angular test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install, test, build
+        shell: bash
+        run: |
+          set -o pipefail
+          # npm ci when the lockfile is committed (reproducible), npm install until then.
+          { if [ -f package-lock.json ]; then npm ci; else npm install; fi && npm test && npx ng build; } 2>&1 | tee web.log
+      - name: Post failure log on the PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const lines = fs.existsSync('web/web.log') ? fs.readFileSync('web/web.log', 'utf8').split('\n') : ['(no log)'];
+            const body = ['### ❌ Angular test/build failed', '', '```', ...lines.slice(-80), '```'].join('\n');
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body: body.slice(0, 60000) });

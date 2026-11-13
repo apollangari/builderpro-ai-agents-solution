@@ -1,0 +1,18 @@
+{
+  // Requires the C# Dev Kit and the Aspire extension for VS Code.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "AppHost (Aspire)",
+      "type": "aspire",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/AppHost/BuilderPro.AppHost/BuilderPro.AppHost.csproj"
+    },
+    {
+      "name": "Me API only",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/Services/Me/BuilderPro.Me.Api/BuilderPro.Me.Api.csproj"
+    }
+  ]
+}

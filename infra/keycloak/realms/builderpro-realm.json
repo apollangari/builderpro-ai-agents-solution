@@ -1,0 +1,246 @@
+{
+  "realm": "builderpro",
+  "displayName": "BuilderPro (local dev)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "roles": {
+    "realm": [
+      {
+        "name": "customer",
+        "description": "Homeowner using the storefront"
+      },
+      {
+        "name": "staff",
+        "description": "Retailer staff"
+      },
+      {
+        "name": "platform-admin",
+        "description": "BuilderPro platform operator: administers tenant memberships"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "builderpro-web",
+      "name": "BuilderPro Web (Angular SPA)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4200"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience: builderpro-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "builderpro-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm roles -> roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "builderpro-api",
+      "name": "BuilderPro API (audience)",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@acme.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Acme",
+      "enabled": true,
+      "attributes": {
+        "tenant_id": [
+          "t-acme"
+        ]
+      },
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ],
+      "id": "a11ce000-0000-4000-8000-000000000001"
+    },
+    {
+      "username": "bob",
+      "email": "bob@acme.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Acme",
+      "enabled": true,
+      "attributes": {
+        "tenant_id": [
+          "t-acme"
+        ]
+      },
+      "realmRoles": [
+        "staff"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ],
+      "id": "b0b00000-0000-4000-8000-000000000002"
+    },
+    {
+      "username": "carol",
+      "email": "carol@globex.test",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Globex",
+      "enabled": true,
+      "attributes": {
+        "tenant_id": [
+          "t-globex"
+        ]
+      },
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ],
+      "id": "ca201000-0000-4000-8000-000000000003"
+    },
+    {
+      "id": "da7a0000-0000-4000-8000-000000000004",
+      "username": "dana",
+      "email": "dana@contractor.test",
+      "emailVerified": true,
+      "firstName": "Dana",
+      "lastName": "Contractor",
+      "enabled": true,
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "e1110000-0000-4000-8000-000000000005",
+      "username": "erin",
+      "email": "erin@new.test",
+      "emailVerified": true,
+      "firstName": "Erin",
+      "lastName": "Newcomer",
+      "enabled": true,
+      "realmRoles": [
+        "customer"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "9a700000-0000-4000-8000-000000000006",
+      "username": "pat",
+      "email": "pat@builderpro.test",
+      "emailVerified": true,
+      "firstName": "Pat",
+      "lastName": "Platform",
+      "enabled": true,
+      "realmRoles": [
+        "platform-admin"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"tenant_id\", \"displayName\": \"Tenant\", \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"User metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\"}]}"
+          ]
+        }
+      }
+    ]
+  }
+}
