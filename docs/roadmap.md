@@ -52,12 +52,13 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 |---|---|---|
 | 3d | **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
-| 1h | **Packages per store**: a store's package turns on (a) the guided workflow with a **help chat** that only answers questions (no agent acting), and/or (b) the **AI concierge** that works on the project. Enforced server-side per tenant (the concierge refuses stores without it; the UI hides what isn't included) | A store without the agent package gets a refusal from the concierge API even if called directly |
+| 1h | **Packages per store**: a store's package turns on (a) the guided workflow with a **help chat** that only answers questions (no agent acting), and/or (b) the **AI concierge** that works on the project, and/or (c) **AI phone scheduling** (4b). Enforced server-side per tenant (the concierge refuses stores without it; the UI hides what isn't included) | A store without the agent package gets a refusal from the concierge API even if called directly |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
 | 6a | **Deposit holds the price**: after Accept, the customer pays a **5 % advance** (payment provider in test mode; amount from the pricing engine); only a paid deposit holds the price until the quote's validity date; receipt | Without a paid deposit the price is not held; only the customer can pay; an agent can't |
 | 6b | **Measure visit**: pick a slot from store availability within the customer's contact hours; measured values replace the estimate and re-price the quote for the customer to confirm | A changed price always needs the customer's confirmation |
 | 6c | **Install tracking**: stages scheduled -> fabricating -> installing -> done, with notifications on the customer's chosen channels (consent from 1f-b) | No message is sent on a channel the customer didn't consent to |
+| 4b | **AI phone scheduling (store option)**: after the deposit (6a), the scheduling agent (4a) calls the customer only if they opted in to automated calls, only within their contact hours (their time zone), says it's an automated assistant, offers 2-3 measure-visit slots and a person; the customer confirms the slot from a text/email link (the agent never books on its own); opt-out on every call, recorded; telephony via Azure Communication Services (or Twilio) | No call without automated-call consent or outside the customer's hours; a slot is booked only by the customer's confirmation; opt-outs stop all calls immediately |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
 
 ## Target experience (owner's mockup, 2026-11-13)
@@ -70,6 +71,11 @@ Principle shown on the page: *the concierge can prepare things, but never accept
 as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e (takeover) -> 6a-c.
 
 ## Decisions
+
+- **AI phone calls need their own consent (2026-11-13, owner idea, 4b).** "Phone calls" at sign-up is not
+  consent to automated/AI calls. Before 4b, the sign-up and profile consent get an explicit opt-in for
+  automated calls (new wording version, recorded in the consent history); without it, a person calls or
+  we text instead.
 
 - **Price hold needs a deposit (2026-11-13, owner).** A quote's price is held only once the customer
   pays an advance of **5 %** of the quote total. Accepting alone no longer holds the price: until the
