@@ -45,6 +45,11 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
+| 2n-a | **Guided quote: ZIP + category.** Stores define service areas (ZIP codes, grouped into zones); a product can be limited to zones. `/quote/new` starts with ZIP, then category; the picker shows only products sold in that ZIP and category | An unserved ZIP gets "we don't serve that area yet"; a product outside the ZIP's zone never appears or prices |
+| 2n-b | **Measurements per category**: countertops as pieces (length x depth, plus backsplash) giving sq ft and finished-edge length; roofs (existing calculator); flooring/decking rooms; fencing run; "each" for sheds, windows, doors. Server-side estimators, quantities only | The wizard never computes a quantity in the browser; each estimator has domain tests |
+| 2n-c | **Add-ons / options per category**: option groups the store configures, e.g. countertop edge profile (per linear ft of finished edge), faucet holes (each), sink (pick a sink product), cooktop cutout. Required/optional, single/multi, priced from the catalog with quantities from the measurements | Options and their quantities come from the server; invalid combinations are rejected by the API |
+| 2n-d | **Protection plans**: per-category plans (e.g. None / 5-year / 10-year), priced flat or as a % of the product + add-ons subtotal, chosen after options | Plan price comes from the pricer; "None" is an explicit choice |
+| 2n-e | **Quote review + save**: grouped quote (product, add-ons, protection, tax, total), saved as a draft with the ZIP, measurements and choices; My quotes shows it | The saved quote is reproducible from its stored inputs; totals match the preview |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
@@ -62,6 +67,16 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 - **3a LLM provider (2026-11-13): Microsoft Foundry, gpt-4o deployment.** Key, endpoint and deployment live in
   AppHost user secrets locally (Key Vault in Azure). For development, any OpenAI-compatible server (a free local
   LLM) can be used instead by setting `assistant-provider=local`; never with real customer data.
+
+- **Regular customer flow (2026-11-13, from the owner):** ZIP code -> product category -> only products for
+  that ZIP and category -> measurements -> add-ons/options (e.g. countertop edge, faucet holes, sinks) ->
+  protection plan -> quote. Built as the guided quote 2n-a..e; the assistant (3b) drafts quotes through the
+  same steps, asking for the ZIP first. Defaults until the owner says otherwise:
+  - The ZIP is checked against the customer's store's service areas; it does not pick a store (a customer
+    is still signed up through one store's link).
+  - Prices are the same in every ZIP of a store for now; zones only control availability. Tax stays per store.
+  - Add-ons and protection plans are catalog items the store maintains, never hard-coded prices.
+  - The existing quote builder (2m) stays for staff until 2n-e replaces it for customers.
 
 ## Open questions
 
