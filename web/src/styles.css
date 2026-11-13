@@ -1,75 +1,36 @@
 /*
- * BuilderPro design system: tokens + a handful of primitives every page reuses.
- * Components keep only layout in their own styles; colour, type, radius and depth come
- * from here, so light/dark and future re-theming are one-file changes.
+ * BuilderPro "Navy & Sand" theme.
+ *
+ * Every colour, radius and font in the app comes from these tokens; components never hard-code
+ * a colour. A retailer (white-label) may override ONLY --bp-accent, --bp-accent-hover and
+ * --bp-accent-soft, through ThemeService (src/app/core/theme/theme.service.ts).
+ *
+ * Contrast: --bp-ink and --bp-ink-muted on --bp-bg / --bp-surface, and --bp-on-accent on
+ * --bp-accent, are all at least 4.5:1.
  */
-
 :root {
-  color-scheme: light;
+  --bp-bg: #f5f1e8;
+  --bp-surface: #fffdf8;
+  --bp-surface-muted: #ede6d6;
+  --bp-border: #e3dccc;
+  --bp-border-strong: #d6cdb8;
+  --bp-ink: #14213d;
+  --bp-ink-muted: #5e5a4f;
+  --bp-accent: #1e3a8a;
+  --bp-accent-hover: #172b66;
+  --bp-accent-soft: #e3e8f3;
+  --bp-on-accent: #ffffff;
+  --bp-warning-bg: #fdf1dc;
+  --bp-warning-ink: #7a4b00;
+  --bp-radius-sm: 10px;
+  --bp-radius-md: 12px;
+  --bp-radius-lg: 16px;
+  --bp-font-body: Inter, system-ui, sans-serif;
+  --bp-font-heading: "Space Grotesk", Inter, sans-serif;
 
-  /* Palette: ink slate + "safety orange" accent, warm off-white canvas */
-  --bg: #f7f5f2;
-  --bg-glow-1: rgba(249, 115, 22, 0.12);
-  --bg-glow-2: rgba(56, 189, 248, 0.1);
-  --surface: #ffffff;
-  --surface-2: #f1eee9;
-  --border: #e4dfd7;
-  --text: #1c1917;
-  --text-muted: #6b625a;
-  --accent: #ea580c;
-  --accent-strong: #c2410c;
-  --accent-soft: #fff1e6;
-  --accent-text: #ffffff;
-  --ok: #15803d;
-  --ok-soft: #e8f6ec;
-  --warn: #b45309;
-  --warn-soft: #fef3e2;
-  --danger: #b42318;
-  --danger-soft: #fdecea;
-  --info: #0369a1;
-  --info-soft: #e6f3fb;
-
-  --radius-sm: 8px;
-  --radius: 14px;
-  --radius-lg: 22px;
-  --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.06);
-  --shadow: 0 1px 2px rgba(28, 25, 23, 0.05), 0 8px 24px -12px rgba(28, 25, 23, 0.18);
-  --shadow-lg: 0 2px 4px rgba(28, 25, 23, 0.04), 0 24px 48px -20px rgba(28, 25, 23, 0.28);
-
-  --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Space Grotesk', var(--font);
-  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
-
-  --page-max: 72rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #0f0d0c;
-    --bg-glow-1: rgba(249, 115, 22, 0.14);
-    --bg-glow-2: rgba(56, 189, 248, 0.08);
-    --surface: #1a1715;
-    --surface-2: #231f1c;
-    --border: #2f2a26;
-    --text: #f5f2ee;
-    --text-muted: #a69c93;
-    --accent: #fb7a2e;
-    --accent-strong: #fdba74;
-    --accent-soft: rgba(251, 122, 46, 0.14);
-    --accent-text: #1a0d05;
-    --ok: #4ade80;
-    --ok-soft: rgba(74, 222, 128, 0.12);
-    --warn: #fbbf24;
-    --warn-soft: rgba(251, 191, 36, 0.12);
-    --danger: #f87171;
-    --danger-soft: rgba(248, 113, 113, 0.12);
-    --info: #38bdf8;
-    --info-soft: rgba(56, 189, 248, 0.12);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
-    --shadow-lg: 0 24px 48px -20px rgba(0, 0, 0, 0.7);
-  }
+  /* Derived, not part of the palette: layout only. */
+  --bp-page-max: 72rem;
+  --bp-tap: 44px; /* minimum height of anything you can click */
 }
 
 /* ---------- Base ---------- */
@@ -79,158 +40,140 @@
   box-sizing: border-box;
 }
 
-html {
-  -webkit-text-size-adjust: 100%;
-}
-
 body {
   margin: 0;
   min-height: 100dvh;
-  font-family: var(--font);
+  background: var(--bp-bg);
+  color: var(--bp-ink);
+  font-family: var(--bp-font-body);
   font-size: 15px;
   line-height: 1.55;
-  color: var(--text);
-  background:
-    radial-gradient(60rem 30rem at 85% -10%, var(--bg-glow-1), transparent 60%),
-    radial-gradient(50rem 30rem at -10% 10%, var(--bg-glow-2), transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
-  font-family: var(--font-display);
-  letter-spacing: -0.02em;
-  line-height: 1.15;
   margin: 0;
+  font-family: var(--bp-font-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--bp-ink);
 }
 
 a {
-  color: var(--accent-strong);
+  color: var(--bp-accent);
+}
+
+a:hover {
+  color: var(--bp-accent-hover);
 }
 
 code,
 .mono {
-  font-family: var(--font-mono);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.85em;
 }
 
 code {
   padding: 0.1em 0.4em;
   border-radius: 6px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--bp-surface-muted);
 }
 
+/* Visible focus everywhere, for keyboard users. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--bp-accent);
   outline-offset: 2px;
-  border-radius: 6px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---------- Layout ---------- */
 .page {
-  max-width: var(--page-max);
+  max-width: var(--bp-page-max);
   margin: 0 auto;
-  padding: 2.5rem 1.25rem 4rem;
+  padding: 2rem 1.25rem 4rem;
 }
 
 .page-head {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-head h1 {
+  font-size: 1.75rem;
 }
 
 .page-head p {
-  margin: 0.5rem 0 0;
-  color: var(--text-muted);
+  margin: 0.4rem 0 0;
+  color: var(--bp-ink-muted);
   max-width: 44rem;
 }
 
 .eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
+  display: block;
+  margin-bottom: 0.4rem;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent-strong);
-  margin-bottom: 0.6rem;
+  color: var(--bp-ink-muted);
 }
 
 /* ---------- Card ---------- */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.4rem 1.5rem;
+  background: var(--bp-surface);
+  border: 1px solid var(--bp-border);
+  border-radius: var(--bp-radius-lg);
+  padding: 20px;
 }
 
-.card-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
-  margin-bottom: 1.1rem;
+.card-title {
+  font-family: var(--bp-font-heading);
+  font-size: 18px;
+  font-weight: 600;
 }
 
-.card-head h2 {
-  font-size: 1.1rem;
-}
-
-.card-head p {
-  margin: 0.2rem 0 0;
-  color: var(--text-muted);
+.card-sub {
+  margin: 0.2rem 0 1rem;
+  color: var(--bp-ink-muted);
   font-size: 0.85rem;
 }
 
-.icon-tile {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-
-.icon-tile svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-/* ---------- Buttons ---------- */
+/* ---------- Buttons (all at least 44 px tall) ---------- */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  padding: 0.55rem 1.05rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  min-height: var(--bp-tap);
+  padding: 0 1.1rem;
+  border-radius: var(--bp-radius-md);
+  border: 1px solid var(--bp-border-strong);
+  background: var(--bp-surface);
+  color: var(--bp-ink);
   font: inherit;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   text-decoration: none;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    background-color 0.15s ease,
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .btn:hover {
-  border-color: var(--text-muted);
-  transform: translateY(-1px);
-}
-
-.btn:active {
-  transform: translateY(0);
+  background: var(--bp-surface-muted);
+  color: var(--bp-ink);
 }
 
 .btn svg {
@@ -238,71 +181,45 @@ code {
   height: 1rem;
 }
 
+.btn[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-  box-shadow: 0 6px 18px -8px var(--accent);
+  min-height: 48px;
+  background: var(--bp-accent);
+  border-color: var(--bp-accent);
+  color: var(--bp-on-accent);
 }
 
 .btn-primary:hover {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+  background: var(--bp-accent-hover);
+  border-color: var(--bp-accent-hover);
+  color: var(--bp-on-accent);
 }
 
-.btn-ghost {
-  background: transparent;
-  border-color: transparent;
-}
-
-.btn-ghost:hover {
-  background: var(--surface-2);
-  border-color: var(--border);
-}
-
-/* ---------- Badges & chips ---------- */
+/* ---------- Badges ---------- */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+  background: var(--bp-surface-muted);
+  color: var(--bp-ink);
   white-space: nowrap;
 }
 
-.badge-ok {
-  background: var(--ok-soft);
-  color: var(--ok);
-  border-color: transparent;
-}
-
-.badge-warn {
-  background: var(--warn-soft);
-  color: var(--warn);
-  border-color: transparent;
-}
-
-.badge-danger {
-  background: var(--danger-soft);
-  color: var(--danger);
-  border-color: transparent;
-}
-
-.badge-info {
-  background: var(--info-soft);
-  color: var(--info);
-  border-color: transparent;
-}
-
 .badge-accent {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  border-color: transparent;
+  background: var(--bp-accent-soft);
+  color: var(--bp-accent);
+}
+
+.badge-warning {
+  background: var(--bp-warning-bg);
+  color: var(--bp-warning-ink);
 }
 
 .chips {
@@ -315,12 +232,12 @@ code {
 .facts {
   display: grid;
   grid-template-columns: 8rem 1fr;
-  gap: 0.65rem 1rem;
+  gap: 0.6rem 1rem;
   margin: 0;
 }
 
 .facts dt {
-  color: var(--text-muted);
+  color: var(--bp-ink-muted);
   font-size: 0.85rem;
 }
 
@@ -331,20 +248,20 @@ code {
   overflow-wrap: anywhere;
 }
 
-/* ---------- Alerts ---------- */
-.alert {
+/* ---------- Warning box (errors are explained, not shouted) ---------- */
+.warning {
   display: flex;
-  gap: 0.7rem;
+  gap: 0.6rem;
   align-items: flex-start;
-  padding: 0.85rem 1rem;
-  border-radius: var(--radius-sm);
-  background: var(--danger-soft);
-  color: var(--danger);
+  padding: 0.8rem 1rem;
+  border-radius: var(--bp-radius-md);
+  background: var(--bp-warning-bg);
+  color: var(--bp-warning-ink);
   font-weight: 500;
   font-size: 0.9rem;
 }
 
-.alert svg {
+.warning svg {
   flex: none;
   width: 1.1rem;
   height: 1.1rem;
@@ -356,17 +273,13 @@ code {
   display: block;
   height: 0.9rem;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.3s ease-in-out infinite;
+  background: var(--bp-surface-muted);
+  animation: pulse 1.3s ease-in-out infinite;
 }
 
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
   }
 }
 
@@ -382,7 +295,7 @@ code {
 @media (max-width: 560px) {
   .facts {
     grid-template-columns: 1fr;
-    gap: 0.15rem;
+    gap: 0.1rem;
   }
 
   .facts dd {

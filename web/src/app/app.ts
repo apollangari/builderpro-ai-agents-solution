@@ -1,110 +1,112 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
+import { ThemeService } from './core/theme/theme.service';
 
-/** The shell: a sticky header with brand, navigation and sign-in state; the routed page below. */
+/**
+ * The shell, "Option A: Studio split" header:
+ *   left  = retailer mark + name, "powered by BuilderPro"
+ *   right = project label, sign-in/out, avatar
+ * Navigation sits on a second row so every link keeps a 44 px target on small screens.
+ */
 @Component({
   selector: 'app-root',
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <header class="bar">
-      <div class="bar-inner">
-        <a routerLink="/" class="brand" aria-label="BuilderPro home">
+      <div class="row">
+        <a routerLink="/" class="brand" aria-label="Home">
           <span class="mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11.2 12 3l9 8.2V20a1 1 0 0 1-1 1h-5.2v-6.3H9.2V21H4a1 1 0 0 1-1-1z" /></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 11 12 4l9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-5h4v5" />
+            </svg>
           </span>
-          <span class="word">Builder<span>Pro</span></span>
+          <span class="names">
+            <span class="retailer" data-testid="retailer-name">{{ theme.retailerName() }}</span>
+            <span class="powered">powered by BuilderPro</span>
+          </span>
         </a>
-
-        <nav aria-label="Main">
-          <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
-          <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
-          <a routerLink="/me" routerLinkActive="active">Who am I</a>
-        </nav>
 
         <span class="spacer"></span>
 
+        <span class="project" data-testid="project-label">{{ theme.projectLabel() }}</span>
+
         @if (isAuthenticated()) {
-          <div class="who">
-            <span class="avatar" aria-hidden="true">{{ initials() }}</span>
-            <span class="user" data-testid="user-name">{{ displayName() }}</span>
-          </div>
-          <button type="button" class="btn btn-ghost" (click)="signOut()">Sign out</button>
+          <button type="button" class="btn" (click)="signOut()">Sign out</button>
+          <span class="avatar" [attr.title]="displayName()" aria-hidden="true">{{ initials() }}</span>
+          <span class="sr-only" data-testid="user-name">{{ displayName() }}</span>
         } @else {
           <button type="button" class="btn btn-primary" (click)="signIn()" data-testid="sign-in">Sign in</button>
         }
       </div>
+
+      <nav class="row nav" aria-label="Main">
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+        <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
+        <a routerLink="/me" routerLinkActive="active">Who am I</a>
+      </nav>
     </header>
 
     <main>
       <router-outlet />
     </main>
-
-    <footer class="foot">
-      <span>BuilderPro · agents decide, the domain enforces</span>
-    </footer>
   `,
   styles: `
     :host { display: flex; flex-direction: column; min-height: 100dvh; }
     main { flex: 1; }
 
-    .bar {
-      position: sticky; top: 0; z-index: 10;
-      background: color-mix(in srgb, var(--bg) 75%, transparent);
-      backdrop-filter: saturate(1.4) blur(14px);
-      -webkit-backdrop-filter: saturate(1.4) blur(14px);
-      border-bottom: 1px solid var(--border);
-    }
-    .bar-inner {
-      max-width: var(--page-max); margin: 0 auto; padding: .7rem 1.25rem;
-      display: flex; align-items: center; gap: 1.25rem;
+    .bar { background: var(--bp-surface); border-bottom: 1px solid var(--bp-border); }
+    .row {
+      max-width: var(--bp-page-max); margin: 0 auto; padding: .75rem 1.25rem;
+      display: flex; align-items: center; gap: .9rem;
     }
 
-    .brand { display: inline-flex; align-items: center; gap: .55rem; text-decoration: none; color: var(--text); }
+    .brand { display: inline-flex; align-items: center; gap: .7rem; min-height: var(--bp-tap); text-decoration: none; color: var(--bp-ink); }
+    .brand:hover { color: var(--bp-ink); }
     .mark {
-      display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 10px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-      color: #fff; box-shadow: 0 6px 16px -6px var(--accent);
+      display: grid; place-items: center; flex: none;
+      width: 32px; height: 32px; border-radius: var(--bp-radius-sm);
+      background: var(--bp-accent); color: var(--bp-on-accent);
     }
-    .mark svg { width: 1.1rem; height: 1.1rem; }
-    .word { font-family: var(--font-display); font-weight: 700; font-size: 1.1rem; letter-spacing: -.02em; }
-    .word span { color: var(--accent); }
-
-    nav { display: flex; gap: .25rem; }
-    nav a {
-      padding: .4rem .8rem; border-radius: 999px; text-decoration: none;
-      color: var(--text-muted); font-weight: 500; font-size: .9rem;
-      transition: background-color .15s ease, color .15s ease;
-    }
-    nav a:hover { color: var(--text); background: var(--surface-2); }
-    nav a.active { color: var(--accent-strong); background: var(--accent-soft); font-weight: 600; }
+    .mark svg { width: 18px; height: 18px; }
+    .names { display: flex; flex-direction: column; line-height: 1.2; }
+    .retailer { font-family: var(--bp-font-heading); font-weight: 700; font-size: 1.05rem; }
+    .powered { font-size: 12px; color: var(--bp-ink-muted); }
 
     .spacer { flex: 1; }
+    .project { color: var(--bp-ink-muted); font-size: .9rem; }
 
-    .who { display: inline-flex; align-items: center; gap: .55rem; }
     .avatar {
-      display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
-      background: var(--surface-2); border: 1px solid var(--border);
-      font-weight: 700; font-size: .75rem; color: var(--accent-strong);
+      display: grid; place-items: center; flex: none;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--bp-accent-soft); color: var(--bp-accent);
+      font-family: var(--bp-font-heading); font-weight: 600; font-size: .9rem;
     }
-    .user { font-weight: 600; font-size: .9rem; }
 
-    .foot {
-      max-width: var(--page-max); width: 100%; margin: 0 auto; padding: 1.5rem 1.25rem 2rem;
-      color: var(--text-muted); font-size: .8rem; border-top: 1px solid var(--border);
+    .nav { padding-top: 0; padding-bottom: .5rem; gap: .25rem; }
+    .nav a {
+      display: inline-flex; align-items: center; min-height: var(--bp-tap); padding: 0 .9rem;
+      border-radius: var(--bp-radius-md); text-decoration: none;
+      color: var(--bp-ink-muted); font-weight: 500;
     }
+    .nav a:hover { color: var(--bp-ink); background: var(--bp-surface-muted); }
+    .nav a.active { color: var(--bp-accent); background: var(--bp-accent-soft); font-weight: 600; }
 
     @media (max-width: 640px) {
-      .bar-inner { gap: .4rem; padding: .6rem 1rem; }
-      nav a { padding: .35rem .6rem; }
-      .bar .btn { padding: .45rem .75rem; }
-      .word { display: none; }
-      .user { display: none; }
+      .row { gap: .5rem; padding-left: 1rem; padding-right: 1rem; }
+      .project { display: none; }
+      .powered { display: none; }
     }
   `,
 })
 export class App {
   private readonly oidc = inject(OidcSecurityService);
+  protected readonly theme = inject(ThemeService);
+
+  constructor() {
+    // Static brand for now; later the tenant's config is passed here.
+    this.theme.apply();
+  }
 
   protected readonly isAuthenticated = computed(() => this.oidc.authenticated().isAuthenticated);
   // userData = the ID token / userinfo claims. Display only: authorization happens on the server.
