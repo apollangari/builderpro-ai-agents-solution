@@ -5,6 +5,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
 import { PendingSignup } from './features/signup/pending-signup';
 import { SelectedStore } from './core/tenant/selected-store';
+import { HostStore } from './core/tenant/host-store';
 import { QuoteDraft } from './features/quote/quote-draft';
 
 /** GET /api/identity/memberships/mine. Mirrors MyMembershipDto in C#. */
@@ -40,7 +41,7 @@ interface MyMembership {
 
         <span class="spacer"></span>
 
-        @if (stores.value().length > 1) {
+        @if (!host.active && stores.value().length > 1) {
           <label class="picker">
             <span class="sr-only">Store</span>
             <select data-testid="store-picker" [value]="selected.tenantId() ?? ''" (change)="pick($any($event.target).value)">
@@ -73,6 +74,11 @@ interface MyMembership {
         <a routerLink="/me" routerLinkActive="active">Who am I</a>
       </nav>
     </header>
+    @if (host.unknown()) {
+      <div class="warning host-unknown" role="alert" data-testid="host-unknown">
+        <span>There's no store at this address. Check the link your retailer sent you.</span>
+      </div>
+    }
 
     <main>
       <router-outlet />
@@ -150,6 +156,8 @@ export class App {
   );
 
   protected readonly selected = inject(SelectedStore);
+  /** 1g: on a store's subdomain (acme.…) the store comes from the address and the picker is hidden. */
+  protected readonly host = inject(HostStore);
   protected readonly draft = inject(QuoteDraft);
 
   /** The stores this user belongs to; the picker shows only when there are two or more. */
@@ -171,6 +179,8 @@ export class App {
       const pick = this.selected.tenantId();
       // status 'resolved', not hasValue(): with defaultValue [] hasValue() is already true before
       // the list arrives, which would wrongly drop the pick on every page load.
+      // On a store's subdomain the address decides; the server refuses it if you aren't a member.
+      if (this.host.active) return;
       if (this.stores.status() === 'resolved' && pick && !mine.some((s) => s.tenantId === pick)) this.selected.select(null);
     });
 

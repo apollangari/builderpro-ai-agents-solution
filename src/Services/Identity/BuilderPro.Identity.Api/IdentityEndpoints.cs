@@ -18,12 +18,21 @@ public sealed record RevokeRequest(string? Reason);
 
 public sealed record MyMembershipDto(string TenantId, string StoreName, string? CustomerId);
 
+/// <summary>GET /api/identity/stores/{id}: what a store's subdomain shows before sign-in (1g).</summary>
+public sealed record StoreInfoDto(string Id, string Name, string TenantId, bool SignupEnabled);
+
 public static class IdentityEndpoints
 {
     public const string AdminPolicy = "IdentityAdmin";
 
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder app)
     {
+        // 1g: PUBLIC, so the web app can brand a store's subdomain before anyone signs in.
+        // Only what the storefront shows anyway; the tenant id is a hint the server always re-checks.
+        app.MapGet("/api/identity/stores/{id}", StoreInfo)
+            .AllowAnonymous()
+            .WithSummary("A store's public info by its slug (the subdomain / sign-up link id): name, tenant id, sign-up open.");
+
         var api = app.MapGroup("/api/identity").RequireAuthorization();
 
         api.MapGet("/me", GetMeAsync)
@@ -43,6 +52,17 @@ public static class IdentityEndpoints
         admin.MapPost("/{id:guid}/revoke", RevokeAsync);
 
         return app;
+    }
+
+    internal static IResult StoreInfo(string id, IConfiguration config)
+    {
+        if (!ClaimsNormalizer.IsIdentifier(id)) return Results.NotFound();
+        var store = (config.GetSection("Identity:Stores").Get<StoreOptions[]>() ?? [])
+            .FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal));
+        return store is null
+            ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "store_not_found", detail: "No store with this address.",
+                extensions: new Dictionary<string, object?> { ["code"] = "store_not_found" })
+            : Results.Ok(new StoreInfoDto(store.Id, store.Name, store.TenantId, store.SignupEnabled));
     }
 
     internal static async Task<IResult> GetMeAsync(

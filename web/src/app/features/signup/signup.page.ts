@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, input } from '@angular/core';
+import { HostStore } from '../../core/tenant/host-store';
 import { Router, RouterLink } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { PendingSignup } from './pending-signup';
@@ -43,10 +44,13 @@ export class SignupPage implements OnInit {
   private readonly router = inject(Router);
   private readonly pending = inject(PendingSignup);
 
-  protected readonly valid = computed(() => PendingSignup.isValidStoreId(this.store()));
+  /** ?store=acme, or on a store's own address (acme.…) the store from the subdomain (1g). */
+  private readonly host = inject(HostStore);
+  private readonly storeId = computed(() => this.store() ?? this.host.slug ?? undefined);
+  protected readonly valid = computed(() => PendingSignup.isValidStoreId(this.storeId()));
 
   ngOnInit(): void {
-    const store = this.store();
+    const store = this.storeId();
     if (!PendingSignup.isValidStoreId(store)) return;
 
     this.pending.set(store);

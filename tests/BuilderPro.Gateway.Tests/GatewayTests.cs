@@ -20,6 +20,20 @@ public sealed class GatewayRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stores_public_info_is_forwarded_without_a_token_but_the_rest_of_identity_is_not()
+    {
+        var store = await _factory.CreateClient().GetAsync("/api/identity/stores/acme");
+        Assert.Equal(HttpStatusCode.OK, store.StatusCode);
+        Assert.Equal("/api/identity/stores/acme", _factory.Backend.Received.Single().RequestUri!.AbsolutePath);
+
+        var me = await _factory.CreateClient().GetAsync("/api/identity/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+        var deeper = await _factory.CreateClient().GetAsync("/api/identity/stores/acme/secrets");
+        Assert.Equal(HttpStatusCode.Unauthorized, deeper.StatusCode);   // only /stores/{id} is public
+        Assert.Single(_factory.Backend.Received);
+    }
+
+    [Fact]
     public async Task Protected_route_without_a_token_is_stopped_at_the_gateway()
     {
         var response = await _factory.CreateClient().GetAsync("/api/me");

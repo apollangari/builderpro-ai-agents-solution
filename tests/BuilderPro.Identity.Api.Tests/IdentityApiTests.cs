@@ -176,4 +176,23 @@ public sealed class IdentityApiTests(IdentityFactory f) : IClassFixture<Identity
         var listed = await admin.GetFromJsonAsync<MembershipDto[]>("/api/identity/memberships?tenantId=t-acme");
         Assert.Contains(listed!, m => m.Id == created.Id && !m.Active);   // still there: audit, not delete
     }
+
+    // ---- 1g: a store's public info, for its subdomain ----
+
+    [Fact]
+    public async Task A_stores_public_info_needs_no_sign_in()
+    {
+        var store = await _f.CreateClient().GetFromJsonAsync<StoreInfoDto>("/api/identity/stores/acme");
+        Assert.Equal(("acme", "Acme Home Improvement", "t-acme", true), (store!.Id, store.Name, store.TenantId, store.SignupEnabled));
+    }
+
+    [Theory]
+    [InlineData("nope")]
+    [InlineData("ACME")]   // slugs are exact
+    public async Task An_unknown_store_is_a_named_404(string slug)
+    {
+        var r = await _f.CreateClient().GetAsync($"/api/identity/stores/{slug}");
+        Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
+        Assert.Contains("store_not_found", await r.Content.ReadAsStringAsync());
+    }
 }
