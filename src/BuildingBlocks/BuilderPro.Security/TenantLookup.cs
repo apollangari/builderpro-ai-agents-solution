@@ -2,24 +2,49 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using BuilderPro.Security;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 
-namespace BuilderPro.Catalog.Api.Tenancy;
+namespace BuilderPro.Security;
 
-/// <summary>Either the caller's tenant, or the HTTP problem to return instead.</summary>
-public sealed record TenantLookup(string? TenantId, int Status, string Code)
+/// <summary>
+/// Either the caller's tenant (with the customer and scopes their membership grants), or the HTTP
+/// problem to return instead. CustomerId is set for customers and null for the retailer's staff.
+/// </summary>
+public sealed record TenantLookup(string? TenantId, string? CustomerId, IReadOnlyList<string> Scopes, int Status, string Code)
 {
     public bool Resolved => TenantId is not null;
 
-    public static TenantLookup Ok(string tenantId) => new(tenantId, StatusCodes.Status200OK, "resolved");
-    public static TenantLookup Fail(int status, string code) => new(null, status, code);
+    public bool HasScope(string scope) => Scopes.Contains(scope, StringComparer.Ordinal);
+
+    public static TenantLookup Ok(string tenantId, IReadOnlyList<string>? scopes = null, string? customerId = null) =>
+        new(tenantId, customerId, scopes ?? [], StatusCodes.Status200OK, "resolved");
+
+    public static TenantLookup Fail(int status, string code) => new(null, null, [], status, code);
 }
 
-/// <summary>"Which tenant is this request for?" Catalog never answers that itself.</summary>
+/// <summary>"Which tenant is this request for, with which scopes?" Business services never answer that themselves.</summary>
 public interface ITenantLookup
 {
     Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct);
+}
+
+public static class TenantLookupSetup
+{
+    /// <summary>
+    /// Registers <see cref="ITenantLookup"/> as a typed HttpClient to the Identity service.
+    /// "http://identity" is a LOGICAL name resolved by service discovery; retries, timeouts and the
+    /// circuit breaker come from ServiceDefaults.
+    /// </summary>
+    public static IServiceCollection AddTenantLookup(this IServiceCollection services, IConfiguration config)
+    {
+        services.AddHttpClient<ITenantLookup, IdentityTenantLookup>(c =>
+            c.BaseAddress = new Uri(config["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
+        return services;
+    }
 }
 
 /// <summary>
@@ -27,11 +52,12 @@ public interface ITenantLookup
 ///
 /// Why not read the tenant claim from the token? Because memberships are the source of
 /// truth (LEARN 1d): a token claim is only a hint, and access must be revocable instantly.
-/// Identity applies the one TenantResolver rule; every other service reuses its answer.
+/// Identity applies the one TenantResolver rule; every other service reuses its answer
+/// (LEARN 2a).
 ///
 /// Identity's refusals (403 no_membership, 409 multiple_active_memberships, ...) are passed
 /// through unchanged so the browser sees the same codes everywhere. Anything unexpected
-/// fails CLOSED as 503: we never fall back to "show all products" or "trust the claim".
+/// fails CLOSED as 503: never "show everything" or "trust the claim".
 /// </summary>
 public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenantLookup> log) : ITenantLookup
 {
@@ -54,9 +80,9 @@ public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenant
             if (response.IsSuccessStatusCode)
             {
                 var me = await response.Content.ReadFromJsonAsync<IdentityMe>(ct);
-                return ClaimsNormalizer.IsIdentifier(me?.TenantId)
-                    ? TenantLookup.Ok(me!.TenantId!)
-                    : Unavailable("identity returned no valid tenantId");
+                if (!ClaimsNormalizer.IsIdentifier(me?.TenantId)) return Unavailable("identity returned no valid tenantId");
+                if (me!.CustomerId is not null && !ClaimsNormalizer.IsIdentifier(me.CustomerId)) return Unavailable("identity returned an invalid customerId");
+                return TenantLookup.Ok(me.TenantId!, me.Scopes ?? [], me.CustomerId);
             }
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Conflict)
@@ -93,7 +119,11 @@ public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenant
         }
     }
 
-    // Only the fields Catalog needs. Identity owns the full contract.
-    private sealed record IdentityMe([property: JsonPropertyName("tenantId")] string? TenantId);
+    // Only the fields callers need. Identity owns the full contract.
+    private sealed record IdentityMe(
+        [property: JsonPropertyName("tenantId")] string? TenantId,
+        [property: JsonPropertyName("customerId")] string? CustomerId,
+        [property: JsonPropertyName("scopes")] string[]? Scopes);
+
     private sealed record IdentityProblem([property: JsonPropertyName("code")] string? Code);
 }

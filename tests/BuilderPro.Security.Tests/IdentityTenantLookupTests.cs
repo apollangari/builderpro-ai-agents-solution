@@ -1,10 +1,10 @@
 using System.Net;
 using System.Text;
-using BuilderPro.Catalog.Api.Tenancy;
+using BuilderPro.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace BuilderPro.Catalog.Api.Tests;
+namespace BuilderPro.Security.Tests;
 
 /// <summary>Unit tests of the Identity call itself, with a fake HTTP handler (no network).</summary>
 public sealed class IdentityTenantLookupTests
@@ -49,6 +49,25 @@ public sealed class IdentityTenantLookupTests
         Assert.Equal("/api/identity/me", stub.Last!.RequestUri!.AbsolutePath);
         Assert.Equal("Bearer", stub.Last.Headers.Authorization!.Scheme);
         Assert.Equal("abc.def.ghi", stub.Last.Headers.Authorization.Parameter);
+    }
+
+    [Fact]
+    public async Task Returns_the_membership_customer_and_scopes()
+    {
+        var (lookup, _) = Create(_ => Json(HttpStatusCode.OK, """{"tenantId":"t-acme","customerId":"c-alice","scopes":["quotes.read","quotes.write"]}"""));
+
+        var result = await lookup.ResolveAsync(WithBearer("t"), default);
+
+        Assert.Equal("c-alice", result.CustomerId);
+        Assert.True(result.HasScope("quotes.write"));
+        Assert.False(result.HasScope("catalog.admin"));
+    }
+
+    [Fact]
+    public async Task Staff_have_no_customer()
+    {
+        var (lookup, _) = Create(_ => Json(HttpStatusCode.OK, """{"tenantId":"t-acme","customerId":null,"scopes":[]}"""));
+        Assert.Null((await lookup.ResolveAsync(WithBearer("t"), default)).CustomerId);
     }
 
     [Theory]

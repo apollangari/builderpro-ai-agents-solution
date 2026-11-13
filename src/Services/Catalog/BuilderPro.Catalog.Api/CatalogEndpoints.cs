@@ -1,5 +1,4 @@
 using BuilderPro.Catalog.Api.Domain;
-using BuilderPro.Catalog.Api.Tenancy;
 using BuilderPro.Security;
 
 namespace BuilderPro.Catalog.Api;

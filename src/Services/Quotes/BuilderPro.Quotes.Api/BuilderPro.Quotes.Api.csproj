@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    Quotes service: validates a quote request, prices it with the pure domain library
+    (BuilderPro.Quotes.Domain) using list prices FROM THE CATALOG, and stores it.
+    Database-per-service: only this service reads or writes "quotesdb".
+  -->
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/BuilderPro.Security/BuilderPro.Security.csproj" />
+    <ProjectReference Include="../BuilderPro.Quotes.Domain/BuilderPro.Quotes.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuilderPro.Quotes.Api.Tests" />
+  </ItemGroup>
+</Project>

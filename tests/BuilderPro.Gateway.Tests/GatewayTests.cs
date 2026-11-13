@@ -59,6 +59,23 @@ public sealed class GatewayRoutingTests : IDisposable
         Assert.Equal("/api/catalog/products", forwarded.RequestUri.AbsolutePath);
     }
 
+    [Theory]
+    [InlineData("GET", "/api/quotes")]
+    [InlineData("POST", "/api/quotes")]
+    [InlineData("GET", "/api/quotes/0b9c3a2e-0000-4000-8000-000000000001")]
+    public async Task Quotes_routes_forward_to_the_quotes_service(string method, string path)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "alice");
+
+        var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), path) { Content = method == "POST" ? new StringContent("{}") : null });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var forwarded = Assert.Single(_factory.Backend.Received);
+        Assert.Equal("quotes.test", forwarded.RequestUri!.Host);
+        Assert.Equal(path, forwarded.RequestUri.AbsolutePath);
+    }
+
     [Fact]
     public async Task Unknown_routes_are_not_forwarded()
     {

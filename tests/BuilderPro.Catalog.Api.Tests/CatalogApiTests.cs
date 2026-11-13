@@ -4,7 +4,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using BuilderPro.Catalog.Api.Domain;
 using BuilderPro.Catalog.Api.Infrastructure;
-using BuilderPro.Catalog.Api.Tenancy;
+using BuilderPro.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;

@@ -1,7 +1,6 @@
 using BuilderPro.Catalog.Api;
 using BuilderPro.Catalog.Api.Domain;
 using BuilderPro.Catalog.Api.Infrastructure;
-using BuilderPro.Catalog.Api.Tenancy;
 using BuilderPro.Security;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -16,11 +15,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IProductStore, PostgresProductStore>();
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
-// Typed client for the Identity service. "http://identity" is a LOGICAL name resolved by
-// service discovery (Aspire injects services__identity__http__0). Retries, timeouts and the
-// circuit breaker come from ServiceDefaults.
-builder.Services.AddHttpClient<ITenantLookup, IdentityTenantLookup>(c =>
-    c.BaseAddress = new Uri(builder.Configuration["Catalog:IdentityBaseUrl"] ?? "http://identity"));
+// "Which tenant is this caller in?" -> asks the Identity service (BuilderPro.Security, LEARN 2a).
+builder.Services.AddTenantLookup(builder.Configuration);
 
 builder.Services.AddHealthChecks()
     .AddCheck<ProductStoreHealthCheck>("product-store");   // readiness only (no "live" tag)

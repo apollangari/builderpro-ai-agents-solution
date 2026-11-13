@@ -1,0 +1,287 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using BuilderPro.Quotes.Api;
+using BuilderPro.Quotes.Api.Infrastructure;
+using BuilderPro.Security;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+
+namespace BuilderPro.Quotes.Api.Tests;
+
+/// <summary>X-Test-Sub = a signed-in caller from a fixed issuer. No header = anonymous.</summary>
+public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> o, ILoggerFactory l, UrlEncoder e)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(o, l, e)
+{
+    public const string SchemeName = "Test";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        if (!Request.Headers.TryGetValue("X-Test-Sub", out var sub)) return Task.FromResult(AuthenticateResult.NoResult());
+        var identity = new ClaimsIdentity([new Claim("iss", "http://idp.test/realms/builderpro"), new Claim("sub", sub.ToString())], SchemeName);
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+    }
+}
+
+/// <summary>Stands in for Identity: subject -> tenant, customer, scopes (mirrors the dev memberships).</summary>
+public sealed class FakeTenantLookup : ITenantLookup
+{
+    private static readonly string[] ReadWrite = ["quotes.read", "quotes.write"];
+
+    public Dictionary<string, TenantLookup> Answers { get; } = new(StringComparer.Ordinal)
+    {
+        ["alice"] = TenantLookup.Ok("t-acme", ReadWrite, "c-alice"),
+        ["abe"] = TenantLookup.Ok("t-acme", ReadWrite, "c-abe"),          // another acme customer
+        ["bob"] = TenantLookup.Ok("t-acme", ["quotes.read"]),               // acme staff: no customer, read-only
+        ["carol"] = TenantLookup.Ok("t-globex", ReadWrite, "c-carol"),
+        ["nora"] = TenantLookup.Ok("t-acme", [], "c-nora"),                 // member without quote scopes
+        ["erin"] = TenantLookup.Fail(StatusCodes.Status403Forbidden, "no_membership"),
+    };
+
+    public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) =>
+        Task.FromResult(Answers[http.User.FindFirst("sub")!.Value]);
+}
+
+/// <summary>Stands in for the Catalog: per-tenant price lists, or "down".</summary>
+public sealed class FakeCatalog(FakeTenantLookup tenants) : ICatalogPrices
+{
+    public bool Down { get; set; }
+
+    public static readonly Dictionary<string, CatalogProduct[]> ByTenant = new()
+    {
+        ["t-acme"] = [new("PAINT", "Interior paint", "each", 34.98m, "USD"), new("LABOR", "Installation labour", "hour", 65.00m, "USD")],
+        ["t-globex"] = [new("DECK", "Cedar deck board", "each", 18.75m, "USD"), new("PAINT", "Premium paint", "each", 42.00m, "USD")],
+    };
+
+    public async Task<IReadOnlyDictionary<string, CatalogProduct>?> GetAsync(HttpContext http, CancellationToken ct)
+    {
+        if (Down) return null;
+        var tenant = await tenants.ResolveAsync(http, ct);
+        return ByTenant[tenant.TenantId!].ToDictionary(p => p.Sku);
+    }
+}
+
+public sealed class QuotesFactory : WebApplicationFactory<Program>
+{
+    public static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+    public InMemoryQuoteStore Store { get; } = new();
+    public FakeTenantLookup Tenants { get; } = new();
+    public FakeCatalog Catalog { get; }
+    public FakeTimeProvider Clock { get; } = new(Now);
+
+    public QuotesFactory() => Catalog = new FakeCatalog(Tenants);
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Auth:Authority", "http://idp.test/realms/builderpro");
+        builder.UseSetting("Auth:RequireHttpsMetadata", "false");
+        builder.UseSetting("ConnectionStrings:quotesdb", "Host=unused.test;Database=quotesdb");
+        builder.ConfigureTestServices(s =>
+        {
+            s.RemoveAll<IQuoteStore>();
+            s.AddSingleton<IQuoteStore>(Store);
+            s.RemoveAll<ITenantLookup>();
+            s.AddSingleton<ITenantLookup>(Tenants);
+            s.RemoveAll<ICatalogPrices>();
+            s.AddSingleton<ICatalogPrices>(Catalog);
+            s.RemoveAll<TimeProvider>();
+            s.AddSingleton<TimeProvider>(Clock);
+            s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })
+             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+        });
+    }
+
+    public HttpClient As(string sub)
+    {
+        var c = CreateClient();
+        c.DefaultRequestHeaders.Add("X-Test-Sub", sub);
+        return c;
+    }
+}
+
+public sealed class QuoteApiTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    private static object Body(params (string Sku, decimal Qty)[] lines) => new { lines = lines.Select(l => new { sku = l.Sku, quantity = l.Qty }) };
+
+    private async Task<QuoteDto> CreateOk(string sub, params (string Sku, decimal Qty)[] lines)
+    {
+        var r = await _f.As(sub).PostAsJsonAsync("/api/quotes", Body(lines));
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<QuoteDto>())!;
+    }
+
+    private static async Task<JsonElement> ProblemOf(HttpResponseMessage r) => await r.Content.ReadFromJsonAsync<JsonElement>();
+
+    // ---------- Pricing comes from the catalog and the domain, never the request ----------
+
+    [Fact]
+    public async Task Creates_a_priced_draft_with_catalog_prices_and_tenant_tax()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", Body(("PAINT", 3), ("LABOR", 2.5m)));
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        var q = (await r.Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal($"/api/quotes/{q.Id}", r.Headers.Location!.OriginalString);
+        Assert.Equal("draft", q.Status);
+        Assert.Equal("c-alice", q.CustomerId);
+        Assert.Equal("USD", q.Currency);
+        Assert.Equal(34.98m, q.Lines[0].UnitPrice);
+        Assert.Equal("Interior paint", q.Lines[0].Name);
+        Assert.Equal(267.44m, q.Subtotal);
+        Assert.Equal(0.0825m, q.TaxRate);   // t-acme's configured rate
+        Assert.Equal(22.06m, q.Tax);
+        Assert.Equal(289.50m, q.Total);
+    }
+
+    [Fact]
+    public async Task A_price_in_the_request_is_ignored()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes",
+            new { lines = new[] { new { sku = "PAINT", quantity = 1m, unitPrice = 0.01m } }, total = 0.01m });
+
+        var q = (await r.Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal(34.98m, q.Lines[0].UnitPrice);
+    }
+
+    [Fact]
+    public async Task Each_tenant_prices_with_its_own_catalog_and_tax()
+    {
+        var q = await CreateOk("carol", ("PAINT", 1));
+        Assert.Equal(42.00m, q.Lines[0].UnitPrice);   // globex's PAINT, not acme's
+        Assert.Equal(0.07m, q.TaxRate);
+        Assert.Equal(44.94m, q.Total);
+    }
+
+    // ---------- Invalid input ----------
+
+    [Fact]
+    public async Task Sku_not_in_your_catalog_is_400_with_the_line()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", Body(("PAINT", 1), ("DECK", 1)));   // DECK is globex's
+
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        var err = (await ProblemOf(r)).GetProperty("errors")[0];
+        Assert.Equal("unknown_sku", err.GetProperty("code").GetString());
+        Assert.Equal(1, err.GetProperty("line").GetInt32());
+    }
+
+    [Fact]
+    public async Task Domain_rule_violations_come_back_as_codes()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", Body(("PAINT", 0), ("PAINT", 1.2345m)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        var codes = (await ProblemOf(r)).GetProperty("errors").EnumerateArray().Select(e => e.GetProperty("code").GetString()!).ToArray();
+        Assert.Equal(["invalid_quantity", "duplicate_sku", "invalid_quantity"], codes);
+    }
+
+    [Fact]
+    public async Task Empty_quote_is_400()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", new { lines = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Equal("no_lines", (await ProblemOf(r)).GetProperty("errors")[0].GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Malformed_sku_is_400_before_the_catalog_is_called()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", Body(("bad sku!", 1)));
+        Assert.Equal("invalid_sku", (await ProblemOf(r)).GetProperty("errors")[0].GetProperty("code").GetString());
+    }
+
+    // ---------- Who may do what ----------
+
+    [Fact]
+    public async Task Creating_needs_quotes_write()
+    {
+        var r = await _f.As("bob").PostAsJsonAsync("/api/quotes", Body(("PAINT", 1)));   // staff, read-only
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal("missing_scope", (await ProblemOf(r)).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Reading_needs_quotes_read()
+    {
+        var r = await _f.As("nora").GetAsync("/api/quotes");
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task No_membership_is_passed_through()
+    {
+        var r = await _f.As("erin").GetAsync("/api/quotes");
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal("no_membership", (await ProblemOf(r)).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Anonymous_is_401()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _f.CreateClient().GetAsync("/api/quotes")).StatusCode);
+    }
+
+    // ---------- Visibility: customer < staff < tenant ----------
+
+    [Fact]
+    public async Task Customers_see_only_their_own_quotes_staff_see_the_tenants_other_tenants_see_nothing()
+    {
+        var mine = await CreateOk("alice", ("PAINT", 1));
+        var theirs = await CreateOk("abe", ("LABOR", 1));
+
+        var alices = await _f.As("alice").GetFromJsonAsync<QuoteSummaryDto[]>("/api/quotes");
+        Assert.Contains(alices!, q => q.Id == mine.Id);
+        Assert.DoesNotContain(alices!, q => q.Id == theirs.Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("alice").GetAsync($"/api/quotes/{theirs.Id}")).StatusCode);
+
+        var bobs = await _f.As("bob").GetFromJsonAsync<QuoteSummaryDto[]>("/api/quotes");
+        Assert.Contains(bobs!, q => q.Id == mine.Id);
+        Assert.Contains(bobs!, q => q.Id == theirs.Id);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("carol").GetAsync($"/api/quotes/{mine.Id}")).StatusCode);
+        Assert.DoesNotContain(await _f.As("carol").GetFromJsonAsync<QuoteSummaryDto[]>("/api/quotes") ?? [], q => q.Id == mine.Id);
+    }
+
+    [Fact]
+    public async Task Get_returns_the_stored_snapshot()
+    {
+        var created = await CreateOk("alice", ("PAINT", 2));
+        var read = await _f.As("alice").GetFromJsonAsync<QuoteDto>($"/api/quotes/{created.Id}");
+
+        Assert.Equal(created.Total, read!.Total);
+        Assert.Equal(created.Lines.Single().LineTotal, read.Lines.Single().LineTotal);
+        Assert.Equal(QuotesFactory.Now, read.CreatedAt);
+    }
+
+    // ---------- Fail closed ----------
+
+    [Fact]
+    public async Task Catalog_down_means_503_and_nothing_stored()
+    {
+        var before = (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count;
+        _f.Catalog.Down = true;
+        try
+        {
+            var r = await _f.As("alice").PostAsJsonAsync("/api/quotes", Body(("PAINT", 1)));
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, r.StatusCode);
+            Assert.Equal("catalog_unavailable", (await ProblemOf(r)).GetProperty("code").GetString());
+        }
+        finally
+        {
+            _f.Catalog.Down = false;
+        }
+        Assert.Equal(before, (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count);
+    }
+}

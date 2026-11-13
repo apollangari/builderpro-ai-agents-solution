@@ -5,6 +5,7 @@
 // 1c: + YARP gateway: the browser talks ONLY to the gateway.
 // 1d: + Postgres + Identity service: tenant comes from MEMBERSHIPS, not just the token.
 // 2a: + Catalog service: products per tenant; asks Identity which tenant the caller is in.
+// 2d: + Quotes service: prices quotes with catalog list prices and the pure pricing domain.
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -38,6 +39,7 @@ var postgres = builder.AddPostgres("postgres")
     .WithPgAdmin();                // browse the data at the pgadmin endpoint in the dashboard
 var identityDb = postgres.AddDatabase("identitydb");
 var catalogDb = postgres.AddDatabase("catalogdb");
+var quotesDb = postgres.AddDatabase("quotesdb");
 
 // ---------------------------------------------------------------------------
 // Identity service: tenant memberships. Seeds the Keycloak test users in Development.
@@ -64,6 +66,21 @@ var catalog = builder.AddProject<Projects.BuilderPro_Catalog_Api>("catalog")
     .WaitFor(identity);
 
 // ---------------------------------------------------------------------------
+// Quotes service: prices come from Catalog, totals from BuilderPro.Quotes.Domain.
+// Calls Identity (tenant, customer, scopes) and Catalog (prices) with the caller's token.
+// ---------------------------------------------------------------------------
+var quotes = builder.AddProject<Projects.BuilderPro_Quotes_Api>("quotes")
+    .WithReference(quotesDb)       // injects ConnectionStrings__quotesdb
+    .WithReference(identity)
+    .WithReference(catalog)
+    .WithEnvironment("Auth__Authority", realmUrl)
+    .WithEnvironment("Auth__RequireHttpsMetadata", "false")
+    .WithHttpHealthCheck("/health")
+    .WaitFor(quotesDb)
+    .WaitFor(identity)
+    .WaitFor(catalog);
+
+// ---------------------------------------------------------------------------
 // Me API: validates the bearer token issued by Keycloak.
 // ---------------------------------------------------------------------------
 var meApi = builder.AddProject<Projects.BuilderPro_Me_Api>("me-api")
@@ -83,10 +100,12 @@ var gateway = builder.AddProject<Projects.BuilderPro_Gateway>("gateway")
     .WithReference(meApi)          // injects services__me-api__http__0 for discovery
     .WithReference(identity)
     .WithReference(catalog)
+    .WithReference(quotes)
     .WithHttpHealthCheck("/health")
     .WaitFor(meApi)
     .WaitFor(identity)
-    .WaitFor(catalog);
+    .WaitFor(catalog)
+    .WaitFor(quotes);
 
 // ---------------------------------------------------------------------------
 // Angular. FIXED port 4200 because Keycloak's client only accepts redirects back to
