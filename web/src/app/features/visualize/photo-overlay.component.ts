@@ -185,18 +185,42 @@ export class PhotoOverlayComponent {
     ctx.drawImage(photo, 0, 0, w, h);
     if (!isUsable(quad)) return;
 
-    const mode = placementFor(this.product().category)?.mode ?? 'texture';
-    ctx.globalAlpha = 0.92;
-    if (mode === 'colour') {
-      ctx.globalCompositeOperation = 'multiply'; // keep the wall's light and shadows
-      ctx.fillStyle = swatchFor(this.product());
+    const category = this.product().category;
+    const mode = placementFor(category)?.mode ?? 'texture';
+    const outline = () => {
       ctx.beginPath();
       quad.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
       ctx.closePath();
+    };
+
+    if (mode === 'colour') {
+      ctx.globalCompositeOperation = 'multiply'; // paint: keep the wall's light and shadows
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = swatchFor(this.product());
+      outline();
       ctx.fill();
     } else if (texture) {
-      const source = mode === 'texture' ? tiled(texture) : texture;
-      drawWarped(ctx, source, source.width, source.height, quad);
+      // 1) Warp onto a separate, fully OPAQUE layer: the triangles overlap by a hair to hide gaps,
+      //    and at full opacity an overlap paints the same pixel twice with no visible seam.
+      const layer = document.createElement('canvas');
+      layer.width = w;
+      layer.height = h;
+      const lctx = layer.getContext('2d');
+      if (lctx) {
+        const source = shouldTile(category) ? tiled(texture) : texture;
+        drawWarped(lctx, source, source.width, source.height, quad, 24);
+        // 2) Put the product on the photo ONCE (no see-through, no double edges).
+        ctx.drawImage(layer, 0, 0);
+        // 3) Bring the room's light back: multiply the photo over the new surface, clipped to it,
+        //    so shadows, reflections and edges in the photo still read on the countertop/floor.
+        ctx.save();
+        outline();
+        ctx.clip();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.globalAlpha = SHADING;
+        ctx.drawImage(photo, 0, 0, w, h);
+        ctx.restore();
+      }
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -222,6 +246,18 @@ export function defaultQuad(w: number, h: number): Quad {
     { x: w * 0.85, y: h * 0.75 },
     { x: w * 0.15, y: h * 0.75 },
   ];
+}
+
+/** How much of the photo's own light and shadow shows through the new surface (multiply pass). */
+export const SHADING = 0.45;
+
+/**
+ * Repeating materials (planks, tiles, shingle courses, deck boards) are tiled so they keep a
+ * realistic scale over a large surface. Countertops are one continuous slab: tiling them shows a
+ * visible repeat, so they are drawn as a single piece.
+ */
+export function shouldTile(category: string): boolean {
+  return category === 'flooring' || category === 'roofing' || category === 'decking';
 }
 
 /** Tiles a texture 3 x 3 so a large surface shows repeating material, not one stretched swatch. */

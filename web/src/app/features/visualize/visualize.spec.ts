@@ -171,3 +171,11 @@ describe('PhotoOverlayComponent', () => {
     expect(comp.corners()[0]).toEqual({ x: before.x + 20, y: before.y - 4 });
   });
 });
+
+describe('photo overlay rendering rules', () => {
+  it('tiles only materials that repeat; countertops, sheds, paint are one piece', async () => {
+    const { shouldTile } = await import('./photo-overlay.component');
+    expect(['flooring', 'roofing', 'decking'].every(shouldTile)).toBe(true);
+    expect(['countertops', 'cabinets', 'sheds', 'paint', 'windows-doors', 'fencing'].some(shouldTile)).toBe(false);
+  });
+});
