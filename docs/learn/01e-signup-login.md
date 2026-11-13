@@ -67,6 +67,9 @@ else works.
 
 ## 6. Not yet
 - ~~Email verification and "Forgot password"~~: done in 1f (Mailpit locally, Zoho opt-in; docs/email.md).
-- **Consent audit trail:** the platform should record *when* and *to which wording* a customer
-  consented (and every change). Keycloak keeps only the current value.
+- ~~Consent audit trail~~: done in 1f. Keycloak puts `contact_consent` / `contact_hours` in the access
+  token; Identity appends to `identity.consent_events` at sign-up and on every change (the shell calls
+  `POST /api/identity/consent/sync` once per sign-in), with the wording version from
+  `Identity:ConsentWording`. Customers read their own history at `GET /api/identity/consent/history`.
+  Bump `Identity:ConsentWording:Version` whenever the sign-up consent text changes.
 - **Tenant switcher** for users who are customers of several stores.

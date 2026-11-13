@@ -1,6 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { of } from 'rxjs';
 import { App } from './app';
@@ -15,13 +17,21 @@ function fakeOidc(authenticated: boolean, user: Record<string, unknown> | null =
   };
 }
 
-async function render(oidc: ReturnType<typeof fakeOidc>) {
+/**
+ * Renders the shell. A signed-in shell POSTs a consent sync (httpResource); a pending request keeps
+ * the app "unstable", so by default it is answered here. Pass answerConsentSync=false to inspect it.
+ */
+async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = true) {
   await TestBed.configureTestingModule({
     imports: [App],
-    providers: [provideRouter([]), { provide: OidcSecurityService, useValue: oidc }],
+    providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: OidcSecurityService, useValue: oidc }],
   }).compileComponents();
   const fixture = TestBed.createComponent(App);
-  await fixture.whenStable();
+  TestBed.tick();
+  if (answerConsentSync) {
+    TestBed.inject(HttpTestingController).match('/api/identity/consent/sync').forEach((r) => r.flush({ recorded: false, current: null }));
+    await fixture.whenStable();
+  }
   return fixture.nativeElement as HTMLElement;
 }
 
@@ -42,6 +52,20 @@ describe('App shell', () => {
     expect(el.querySelector('[data-testid="user-name"]')?.textContent).toContain('Alice Acme');
     expect(el.querySelector('[data-testid="sign-in"]')).toBeNull();
     expect(el.querySelector('.avatar')?.textContent?.trim()).toBe('AA');
+  });
+
+  it('syncs contact consent once when signed in', async () => {
+    await render(fakeOidc(true, { name: 'Alice Acme' }), false);
+    const http = TestBed.inject(HttpTestingController);
+    const req = http.expectOne('/api/identity/consent/sync');
+    expect(req.request.method).toBe('POST');
+    req.flush({ recorded: false, current: null });
+    http.verify();
+  });
+
+  it('does not sync consent when signed out', async () => {
+    await render(fakeOidc(false));
+    TestBed.inject(HttpTestingController).expectNone('/api/identity/consent/sync');
   });
 
   it('shows the retailer brand and project label from the theme', async () => {

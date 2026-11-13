@@ -34,7 +34,7 @@ public static class Onboarding
 {
     public static async Task<IResult> JoinAsync(
         JoinStoreRequest request, ClaimsPrincipal principal, AuthOptions auth, IMembershipStore memberships,
-        IConfiguration config, TimeProvider clock, ITenantCacheInvalidator tenantCache, CancellationToken ct)
+        IConfiguration config, TimeProvider clock, ITenantCacheInvalidator tenantCache, IConsentStore consents, CancellationToken ct)
     {
         if (!ClaimsNormalizer.IsIdentifier(request.Store))
         {
@@ -50,6 +50,9 @@ public static class Onboarding
 
         var user = ClaimsNormalizer.FromPrincipal(principal, auth);
         var now = clock.GetUtcNow();
+
+        // First record of what they agreed to at sign-up (no-op if already recorded and unchanged).
+        await ConsentEndpoints.RecordFromTokenAsync(principal, auth, consents, config, clock, "signup", ct);
         var existing = (await memberships.FindByUserAsync(user.UserKey, ct)).FirstOrDefault(m => m.TenantId == store.TenantId);
         if (existing is not null)
         {

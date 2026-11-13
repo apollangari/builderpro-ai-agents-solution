@@ -29,6 +29,8 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
         if (!Request.Headers.TryGetValue("X-Test-Sub", out var sub)) return Task.FromResult(AuthenticateResult.NoResult());
         var claims = new List<Claim> { new("iss", Issuer), new("sub", sub.ToString()), new("preferred_username", sub.ToString()) };
         if (Request.Headers.TryGetValue("X-Test-Tenant", out var t)) claims.Add(new Claim("tenant_id", t.ToString()));
+        if (Request.Headers.TryGetValue("X-Test-Consent", out var c)) claims.Add(new Claim("contact_consent", c.ToString()));
+        if (Request.Headers.TryGetValue("X-Test-Hours", out var h)) claims.Add(new Claim("contact_hours", h.ToString()));
         claims.AddRange(Request.Headers["X-Test-Roles"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries).Select(r => new Claim("roles", r)));
         var identity = new ClaimsIdentity(claims, SchemeName, "preferred_username", "roles");
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
@@ -39,6 +41,7 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
     public InMemoryMembershipStore Store { get; } = new(new FakeTimeProvider(Now));
+    public InMemoryConsentStore Consents { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -55,6 +58,8 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>
         {
             s.RemoveAll<IMembershipStore>();
             s.AddSingleton<IMembershipStore>(Store);
+            s.RemoveAll<IConsentStore>();
+            s.AddSingleton<IConsentStore>(Consents);
             s.RemoveAll<TimeProvider>();
             s.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
             s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })

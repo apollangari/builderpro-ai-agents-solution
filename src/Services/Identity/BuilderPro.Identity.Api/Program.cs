@@ -20,6 +20,7 @@ if (TenantCacheSetup.HasCache(builder.Configuration)) builder.AddRedisDistribute
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IMembershipStore, PostgresMembershipStore>();
+builder.Services.AddSingleton<IConsentStore, PostgresConsentStore>();   // contact-consent audit trail (1f)
 // Membership changes delete the cached tenant lookups of the other services (LEARN 2f).
 builder.Services.AddTenantCacheInvalidation(builder.Configuration);
 builder.Services.AddBuilderProAuth(builder.Configuration);
@@ -33,6 +34,7 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 await app.Services.GetRequiredService<IMembershipStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IConsentStore>().InitializeAsync(CancellationToken.None);
 await DevSeed.RunAsync(app);
 
 app.UseExceptionHandler();

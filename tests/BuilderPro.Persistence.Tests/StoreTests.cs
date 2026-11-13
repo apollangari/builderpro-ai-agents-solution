@@ -174,3 +174,39 @@ public sealed class QuoteStoreTests(PostgresFixture pg)
         Assert.True(await store.PingAsync(default));
     }
 }
+
+[Collection(PostgresCollection.Name)]
+public sealed class ConsentStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Appends_and_reads_back_newest_first()
+    {
+        var db = await pg.NewDatabaseAsync();
+        var store = new PostgresConsentStore(db);
+        await store.InitializeAsync(default);
+        await new PostgresMembershipStore(db).InitializeAsync(default);   // both share the identity schema
+        await store.InitializeAsync(default);
+
+        var first = await store.AppendAsync("u1", "both", "business", "v1", "signup", T0, default);
+        await store.AppendAsync("u1", "none", "business", "v1", "sync", T0.AddDays(1), default);
+        await store.AppendAsync("u2", "text", "evenings", "v1", "signup", T0, default);
+
+        var history = await store.HistoryAsync("u1", 10, default);
+        Assert.Equal(["none", "both"], history.Select(h => h.Consent));
+        Assert.Equal(T0, history[1].At);
+        Assert.Equal(first.Id, history[1].Id);
+        Assert.Equal("none", (await store.LatestAsync("u1", default))!.Consent);
+        Assert.Null(await store.LatestAsync("nobody", default));
+    }
+
+    [Fact]
+    public async Task The_database_rejects_unknown_values()
+    {
+        var store = new PostgresConsentStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+
+        await Assert.ThrowsAsync<Npgsql.PostgresException>(() => store.AppendAsync("u1", "fax", "business", "v1", "sync", T0, default));
+    }
+}

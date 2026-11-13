@@ -1,4 +1,5 @@
 import { Component, computed, effect, inject } from '@angular/core';
+import { httpResource } from '@angular/common/http';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
@@ -106,6 +107,14 @@ export class App {
 
   private readonly router = inject(Router);
   private readonly pendingSignup = inject(PendingSignup);
+
+  /**
+   * Once per sign-in: let Identity record the contact consent in this token if it changed (1f audit
+   * trail). Fire-and-forget; nothing on screen depends on it, so errors are ignored here.
+   */
+  protected readonly consentSync = httpResource(() =>
+    this.isAuthenticated() ? { url: '/api/identity/consent/sync', method: 'POST' } : undefined,
+  );
 
   constructor() {
     // Static brand for now; later the tenant's config is passed here.
