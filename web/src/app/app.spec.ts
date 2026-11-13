@@ -41,5 +41,14 @@ describe('App shell', () => {
 
     expect(el.querySelector('[data-testid="user-name"]')?.textContent).toContain('Alice Acme');
     expect(el.querySelector('[data-testid="sign-in"]')).toBeNull();
+    expect(el.querySelector('.avatar')?.textContent?.trim()).toBe('AA');
+  });
+
+  it('shows the retailer brand and project label from the theme', async () => {
+    const el = await render(fakeOidc(false));
+
+    expect(el.querySelector('[data-testid="retailer-name"]')?.textContent).toContain('BuilderPro Demo Store');
+    expect(el.textContent).toContain('powered by BuilderPro');
+    expect(el.querySelector('[data-testid="project-label"]')?.textContent).toContain('Sample project');
   });
 });
