@@ -43,6 +43,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
+| 2m | **Quote builder UI**: "Add to quote" from picker/compare, a draft list with quantities, the roof calculator filling bundles/rolls/labour from the estimator, submit -> `POST /api/quotes`, and a "My quotes" page | Component tests; a live roof quote end to end |
 | 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
@@ -57,6 +58,10 @@ not a contract: anything past the next two or three rows will be re-cut as we le
   enabled accept it; the store id is carried through the login round trip in signed state, never trusted from a
   later request; an existing membership is never changed by a sign-up link; staff roles are never granted this way.
   Without a store, a new user sees "ask your retailer for a sign-up link" instead of an error.
+
+## Open questions
+
+- **3a LLM provider (blocks the agents):** Microsoft Foundry / Azure OpenAI (matches the .NET Agent Framework + Azure plan) or Anthropic Claude, which model, and where the key lives (user secrets locally, Key Vault in Azure). Needs the owner's account and budget.
 
 ## Conventions
 
