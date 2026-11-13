@@ -205,3 +205,13 @@ describe('kitchen cabinets', () => {
     expect(count(await kitchen({ style: 'flat-panel', color: 'White' }))).toBe(0);
   });
 });
+
+describe('photo mode per category', () => {
+  it('recolours cabinets and walls, warps textures, places objects', async () => {
+    const { photoModeFor } = await import('./photo-overlay.component');
+    expect(photoModeFor('cabinets')).toBe('colour');
+    expect(photoModeFor('paint')).toBe('colour');
+    expect(photoModeFor('countertops')).toBe('texture');
+    expect(photoModeFor('sheds')).toBe('object');
+  });
+});

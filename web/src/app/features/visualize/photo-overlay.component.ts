@@ -186,7 +186,7 @@ export class PhotoOverlayComponent {
     if (!isUsable(quad)) return;
 
     const category = this.product().category;
-    const mode = placementFor(category)?.mode ?? 'texture';
+    const mode = photoModeFor(category);
     const outline = () => {
       ctx.beginPath();
       quad.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
@@ -194,7 +194,7 @@ export class PhotoOverlayComponent {
     };
 
     if (mode === 'colour') {
-      ctx.globalCompositeOperation = 'multiply'; // paint: keep the wall's light and shadows
+      ctx.globalCompositeOperation = 'multiply'; // paint, cabinets: recolour, keeping the light, shadows and detail
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = swatchFor(this.product());
       outline();
@@ -246,6 +246,16 @@ export function defaultQuad(w: number, h: number): Quad {
     { x: w * 0.85, y: h * 0.75 },
     { x: w * 0.15, y: h * 0.75 },
   ];
+}
+
+/**
+ * How a product goes onto a PHOTO. Mostly the scene placement, except cabinets: real cabinets are
+ * already in the photo, so pasting a product picture over them can't look right. Recolouring the
+ * existing fronts (multiply, like paint) keeps their doors, handles and shadows.
+ */
+export function photoModeFor(category: string): 'texture' | 'object' | 'colour' {
+  if (category === 'cabinets') return 'colour';
+  return placementFor(category)?.mode ?? 'texture';
 }
 
 /** How much of the photo's own light and shadow shows through the new surface (multiply pass). */
