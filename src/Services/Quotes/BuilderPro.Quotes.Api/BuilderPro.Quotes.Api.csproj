@@ -6,6 +6,7 @@
   -->
   <ItemGroup>
     <PackageReference Include="Aspire.Npgsql" />
+    <PackageReference Include="Dapper" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />

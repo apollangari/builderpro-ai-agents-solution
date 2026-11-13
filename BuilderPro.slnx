@@ -23,6 +23,7 @@
     <Project Path="tests/BuilderPro.Catalog.Api.Tests/BuilderPro.Catalog.Api.Tests.csproj" />
     <Project Path="tests/BuilderPro.Quotes.Domain.Tests/BuilderPro.Quotes.Domain.Tests.csproj" />
     <Project Path="tests/BuilderPro.Quotes.Api.Tests/BuilderPro.Quotes.Api.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Persistence.Tests/BuilderPro.Persistence.Tests.csproj" />
     <Project Path="tests/BuilderPro.Security.Tests/BuilderPro.Security.Tests.csproj" />
   </Folder>
 </Solution>

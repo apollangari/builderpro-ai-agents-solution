@@ -1,17 +1,28 @@
 using BuilderPro.Quotes.Domain;
+using Dapper;
 using Npgsql;
 
 namespace BuilderPro.Quotes.Api.Infrastructure;
 
 /// <summary>
-/// Postgres store with plain SQL, same style as Identity and Catalog. A quote and its lines are
-/// written in ONE transaction. Every read filters by tenant_id (and customer_id for customers).
+/// Postgres store: hand-written SQL, Dapper only for parameters and row mapping.
+/// A quote and its lines are written in ONE transaction. Every read filters by tenant_id
+/// (and customer_id for customers).
 /// </summary>
 public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
 {
+    private const string HeadColumns = """
+        id AS Id, tenant_id AS TenantId, customer_id AS CustomerId, created_by AS CreatedBy, status AS Status,
+        currency AS Currency, subtotal AS Subtotal, tax_rate AS TaxRate, tax AS Tax, total AS Total, created_at AS CreatedAt
+        """;
+
+    // @customerId NULL = staff: every customer of the tenant.
+    private const string Visible = "tenant_id = @tenantId AND (@customerId::text IS NULL OR customer_id = @customerId)";
+
     public async Task InitializeAsync(CancellationToken ct)
     {
-        await using var cmd = db.CreateCommand("""
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("""
             CREATE SCHEMA IF NOT EXISTS quotes;
             CREATE TABLE IF NOT EXISTS quotes.schema_history(
                 version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
@@ -39,8 +50,7 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
                 line_total numeric(14,2) NOT NULL,
                 PRIMARY KEY (quote_id, line_no));
             INSERT INTO quotes.schema_history(version) VALUES (1) ON CONFLICT DO NOTHING;
-            """);
-        await cmd.ExecuteNonQueryAsync(ct);
+            """, cancellationToken: ct));
     }
 
     public async Task CreateAsync(Quote q, CancellationToken ct)
@@ -48,116 +58,96 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
 
-        await using (var cmd = new NpgsqlCommand("""
+        await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO quotes.quotes(id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            """, conn, tx))
-        {
-            cmd.Parameters.AddWithValue(q.Id);
-            cmd.Parameters.AddWithValue(q.TenantId);
-            cmd.Parameters.AddWithValue((object?)q.CustomerId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue(q.CreatedBy);
-            cmd.Parameters.AddWithValue(q.Status);
-            cmd.Parameters.AddWithValue(q.Priced.Total.Currency);
-            cmd.Parameters.AddWithValue(q.Priced.Subtotal.Amount);
-            cmd.Parameters.AddWithValue(q.Priced.TaxRate);
-            cmd.Parameters.AddWithValue(q.Priced.Tax.Amount);
-            cmd.Parameters.AddWithValue(q.Priced.Total.Amount);
-            cmd.Parameters.AddWithValue(q.CreatedAt);
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
+            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Status, @Currency, @Subtotal, @TaxRate, @Tax, @Total, @CreatedAt)
+            """,
+            new
+            {
+                q.Id, q.TenantId, q.CustomerId, q.CreatedBy, q.Status,
+                q.Priced.Total.Currency,
+                Subtotal = q.Priced.Subtotal.Amount, q.Priced.TaxRate, Tax = q.Priced.Tax.Amount, Total = q.Priced.Total.Amount,
+                CreatedAt = q.CreatedAt.UtcDateTime,
+            },
+            tx, cancellationToken: ct));
 
-        var batch = new NpgsqlBatch(conn, tx);
-        for (var i = 0; i < q.Priced.Lines.Count; i++)
-        {
-            var l = q.Priced.Lines[i];
-            var c = new NpgsqlBatchCommand("""
-                INSERT INTO quotes.quote_lines(quote_id, line_no, sku, name, unit, quantity, unit_price, line_total)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                """);
-            c.Parameters.AddWithValue(q.Id);
-            c.Parameters.AddWithValue(i);
-            c.Parameters.AddWithValue(l.Sku);
-            c.Parameters.AddWithValue(l.Name);
-            c.Parameters.AddWithValue(l.Unit);
-            c.Parameters.AddWithValue(l.Quantity);
-            c.Parameters.AddWithValue(l.UnitPrice.Amount);
-            c.Parameters.AddWithValue(l.LineTotal.Amount);
-            batch.BatchCommands.Add(c);
-        }
-        await batch.ExecuteNonQueryAsync(ct);
+        // Dapper runs the statement once per element: one INSERT per line, same transaction.
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO quotes.quote_lines(quote_id, line_no, sku, name, unit, quantity, unit_price, line_total)
+            VALUES (@QuoteId, @LineNo, @Sku, @Name, @Unit, @Quantity, @UnitPrice, @LineTotal)
+            """,
+            q.Priced.Lines.Select((l, i) => new
+            {
+                QuoteId = q.Id, LineNo = i, l.Sku, l.Name, l.Unit, l.Quantity,
+                UnitPrice = l.UnitPrice.Amount, LineTotal = l.LineTotal.Amount,
+            }),
+            tx, cancellationToken: ct));
+
         await tx.CommitAsync(ct);
     }
 
     public async Task<Quote?> FindAsync(string tenantId, string? customerId, Guid id, CancellationToken ct)
     {
-        var heads = await ReadHeadsAsync("AND id = $3", ct, tenantId, customerId, id);
-        return heads.Count == 0 ? null : (await WithLinesAsync(heads, ct))[0];
+        var quotes = await ReadAsync($"SELECT {HeadColumns} FROM quotes.quotes WHERE {Visible} AND id = @id", new { tenantId, customerId, id }, ct);
+        return quotes.Count == 0 ? null : quotes[0];
     }
 
-    public async Task<IReadOnlyList<Quote>> ListAsync(string tenantId, string? customerId, int limit, CancellationToken ct)
-    {
-        var heads = await ReadHeadsAsync("ORDER BY created_at DESC LIMIT $3", ct, tenantId, customerId, limit);
-        return await WithLinesAsync(heads, ct);
-    }
+    public Task<IReadOnlyList<Quote>> ListAsync(string tenantId, string? customerId, int limit, CancellationToken ct) =>
+        ReadAsync($"SELECT {HeadColumns} FROM quotes.quotes WHERE {Visible} ORDER BY created_at DESC LIMIT @limit", new { tenantId, customerId, limit }, ct);
 
     public async Task<bool> PingAsync(CancellationToken ct)
     {
-        await using var cmd = db.CreateCommand("SELECT 1");
-        return await cmd.ExecuteScalarAsync(ct) is 1;
+        await using var conn = await db.OpenConnectionAsync(ct);
+        return await conn.ExecuteScalarAsync<int>(new CommandDefinition("SELECT 1", cancellationToken: ct)) == 1;
     }
 
-    private sealed record Head(Guid Id, string TenantId, string? CustomerId, string CreatedBy, string Status, string Currency,
-        decimal Subtotal, decimal TaxRate, decimal Tax, decimal Total, DateTimeOffset CreatedAt);
-
-    // $1 = tenant, $2 = customer (NULL = staff: every customer of the tenant), $3 = caller-specific.
-    private async Task<List<Head>> ReadHeadsAsync(string tail, CancellationToken ct, string tenantId, string? customerId, object third)
+    private async Task<IReadOnlyList<Quote>> ReadAsync(string headSql, object args, CancellationToken ct)
     {
-        await using var cmd = db.CreateCommand($"""
-            SELECT id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at
-            FROM quotes.quotes
-            WHERE tenant_id = $1 AND ($2::text IS NULL OR customer_id = $2)
-            {tail}
-            """);
-        cmd.Parameters.AddWithValue(tenantId);
-        cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)customerId ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Text });
-        cmd.Parameters.AddWithValue(third);
-
-        var heads = new List<Head>();
-        await using var r = await cmd.ExecuteReaderAsync(ct);
-        while (await r.ReadAsync(ct))
-        {
-            heads.Add(new Head(r.GetGuid(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetString(3), r.GetString(4),
-                r.GetString(5), r.GetDecimal(6), r.GetDecimal(7), r.GetDecimal(8), r.GetDecimal(9), r.GetFieldValue<DateTimeOffset>(10)));
-        }
-        return heads;
-    }
-
-    private async Task<IReadOnlyList<Quote>> WithLinesAsync(List<Head> heads, CancellationToken ct)
-    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var heads = (await conn.QueryAsync<HeadRow>(new CommandDefinition(headSql, args, cancellationToken: ct))).ToList();
         if (heads.Count == 0) return [];
 
-        await using var cmd = db.CreateCommand("""
-            SELECT quote_id, sku, name, unit, quantity, unit_price, line_total
-            FROM quotes.quote_lines WHERE quote_id = ANY($1) ORDER BY quote_id, line_no
-            """);
-        cmd.Parameters.AddWithValue(heads.Select(h => h.Id).ToArray());
+        // All lines of all quotes in ONE query (no N+1). Npgsql passes the Guid[] as a Postgres array.
+        var lines = (await conn.QueryAsync<LineRow>(new CommandDefinition("""
+            SELECT quote_id AS QuoteId, sku AS Sku, name AS Name, unit AS Unit, quantity AS Quantity,
+                   unit_price AS UnitPrice, line_total AS LineTotal
+            FROM quotes.quote_lines WHERE quote_id = ANY(@ids) ORDER BY quote_id, line_no
+            """, new { ids = heads.Select(h => h.Id).ToArray() }, cancellationToken: ct)))
+            .ToLookup(l => l.QuoteId);
 
-        var lines = heads.ToDictionary(h => h.Id, _ => new List<PricedLine>());
-        var currency = heads.ToDictionary(h => h.Id, h => h.Currency);
-        await using (var r = await cmd.ExecuteReaderAsync(ct))
+        return [.. heads.Select(h =>
         {
-            while (await r.ReadAsync(ct))
-            {
-                var id = r.GetGuid(0);
-                var cur = currency[id];
-                lines[id].Add(new PricedLine(r.GetString(1), r.GetString(2), r.GetString(3), r.GetDecimal(4),
-                    new Money(r.GetDecimal(5), cur), new Money(r.GetDecimal(6), cur)));
-            }
-        }
+            Money M(decimal amount) => new(amount, h.Currency);
+            var priced = lines[h.Id].Select(l => new PricedLine(l.Sku, l.Name, l.Unit, l.Quantity, M(l.UnitPrice), M(l.LineTotal))).ToArray();
+            return new Quote(h.Id, h.TenantId, h.CustomerId, h.CreatedBy, h.Status,
+                new PricedQuote(priced, M(h.Subtotal), h.TaxRate, M(h.Tax), M(h.Total)),
+                new DateTimeOffset(DateTime.SpecifyKind(h.CreatedAt, DateTimeKind.Utc)));
+        })];
+    }
 
-        return [.. heads.Select(h => new Quote(h.Id, h.TenantId, h.CustomerId, h.CreatedBy, h.Status,
-            new PricedQuote(lines[h.Id], new Money(h.Subtotal, h.Currency), h.TaxRate, new Money(h.Tax, h.Currency), new Money(h.Total, h.Currency)),
-            h.CreatedAt))];
+    private sealed class HeadRow
+    {
+        public Guid Id { get; init; }
+        public string TenantId { get; init; } = "";
+        public string? CustomerId { get; init; }
+        public string CreatedBy { get; init; } = "";
+        public string Status { get; init; } = "";
+        public string Currency { get; init; } = "";
+        public decimal Subtotal { get; init; }
+        public decimal TaxRate { get; init; }
+        public decimal Tax { get; init; }
+        public decimal Total { get; init; }
+        public DateTime CreatedAt { get; init; }   // timestamptz arrives as UTC DateTime
+    }
+
+    private sealed class LineRow
+    {
+        public Guid QuoteId { get; init; }
+        public string Sku { get; init; } = "";
+        public string Name { get; init; } = "";
+        public string Unit { get; init; } = "";
+        public decimal Quantity { get; init; }
+        public decimal UnitPrice { get; init; }
+        public decimal LineTotal { get; init; }
     }
 }

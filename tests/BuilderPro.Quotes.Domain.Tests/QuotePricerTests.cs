@@ -62,6 +62,23 @@ public sealed class QuotePricerTests
         Assert.Equal(12.345m, q.Lines[0].Quantity);
     }
 
+    [Fact]
+    public void Prices_a_roof_with_trade_units_and_fractional_squares()
+    {
+        // A 24.5-square roof: shingles by the bundle, underlayment by the roll, labour per square.
+        var q = PriceOk(0.0825m,
+            new QuoteLineInput("ROOF-SHINGLE-ARCH", "Architectural shingles", "bundle", 74, Usd(42.97m)),
+            new QuoteLineInput("ROOF-UNDERLAY-SYN", "Synthetic underlayment", "roll", 3, Usd(89.00m)),
+            new QuoteLineInput("ROOF-DRIP-EDGE-10", "Drip edge 10 ft", "each", 18, Usd(9.48m)),
+            new QuoteLineInput("ROOF-LABOR-SQ", "Tear-off and install", "square", 24.5m, Usd(185.00m)));
+
+        Assert.Equal(Usd(3179.78m), q.Lines[0].LineTotal);   // 74 x 42.97
+        Assert.Equal(Usd(4532.50m), q.Lines[3].LineTotal);   // 24.5 x 185.00
+        Assert.Equal(Usd(8149.92m), q.Subtotal);
+        Assert.Equal(Usd(672.37m), q.Tax);                    // 8149.92 x 0.0825 = 672.3684
+        Assert.Equal(Usd(8822.29m), q.Total);
+    }
+
     // ---------- Rounding: one rule, one place ----------
 
     [Fact]
