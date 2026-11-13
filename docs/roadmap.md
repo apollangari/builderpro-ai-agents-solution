@@ -50,10 +50,25 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2n-c | **Add-ons / options per category**, as ordered steps the store configures, each priced from that zone's prices: countertop edge style (picture, price per linear inch/ft of finished edge), sink (new sink from a list with quantities / bring your own / no sink), cutouts (faucet holes: N included then each; cooktop: 1 included then each), removal of the old top, plumbing disconnect/reconnect. Required/optional, single/multi, "included" quantities | Options, included quantities and their prices come from the server; invalid combinations are rejected by the API |
 | 2n-d | **Protection plans**: shown only when the chosen product's material is covered; tiers like "5-year" / "10-year" with a flat price per zone (or % of product + add-ons), plus coverage text; "No plan" is an explicit, required choice | Plan price comes from the pricer; a plan never appears for a product it doesn't cover |
 | 2n-e | **Quote review + save**: no contact form (the customer is signed in; address, phone and consent come from the profile). Grouped quote: product, measurements summary, add-ons, minimum-charge adjustment, protection, tax, total; saved as a draft with the ZIP, measurements and choices; My quotes shows it | The saved quote is reproducible from its stored inputs; totals match the preview |
-| 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
+| 2n-f | **Project workspace** (target layout): store-branded header ("Acme Stone & Tile, powered by BuilderPro", project "Kitchen countertops · 75201"), stage rail Discover -> Configure -> Quote -> Deposit -> Measure visit -> Install, and the 2n steps as panels (layout, your selection, quote card with Accept / Ask about this quote). The chat column slot is empty until 3b | One project's state lives on the server; reload or another device shows the same stage and choices |
+| 3b | **Concierge drafts in the workspace**: the chat column of 2n-f. The agent fills the same project state the panels use (ZIP, product, measurements, options) through tools, offers choices as cards, and the pricing engine prices the quote. It never accepts, pays or books: those buttons are the customer's | The agent cannot accept a quote, take a deposit or book a visit; every price on screen comes from the pricing engine |
+| 3d | **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
+| 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
+| 6a | **Deposit** after Accept quote: payment provider in test mode, deposit % per store, receipt; quote locked at the accepted price for its validity (e.g. 14 days) | Only the customer can pay; the amount comes from the accepted quote |
+| 6b | **Measure visit**: pick a slot from store availability within the customer's contact hours; measured values replace the estimate and re-price the quote for the customer to confirm | A changed price always needs the customer's confirmation |
+| 6c | **Install tracking**: stages scheduled -> fabricating -> installing -> done, with notifications on the customer's chosen channels (consent from 1f-b) | No message is sent on a channel the customer didn't consent to |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
+
+## Target experience (owner's mockup, 2026-11-13)
+
+One project page per job, store-branded. Left: the **Concierge** chat ("answers instantly, a person can
+take over anytime"). Right: a stage rail (Discover, Configure, Quote, Deposit, Measure visit, Install) and
+panels for the current stage: layout (estimated from photos until measured), the selection, and the quote
+(numbered, "priced by the store's pricing engine", valid N days, Accept quote / Ask about this quote).
+Principle shown on the page: *the concierge can prepare things, but never accepts or pays for you.* Built
+as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e (takeover) -> 6a-c.
 
 ## Decisions
 
