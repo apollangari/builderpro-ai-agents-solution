@@ -42,6 +42,9 @@ public sealed class PriceLedger
         Walk(result, null);
     }
 
+    /// <summary>Platform data the agent was given as context (e.g. the project): its amounts count, it isn't a tool.</summary>
+    public void RecordContext(JsonElement result) => Walk(result, null);
+
     private void Walk(JsonElement e, string? property)
     {
         switch (e.ValueKind)

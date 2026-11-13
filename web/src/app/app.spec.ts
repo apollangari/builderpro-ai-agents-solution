@@ -53,7 +53,22 @@ describe('App shell', () => {
 
     expect(el.querySelector('[data-testid="user-name"]')?.textContent).toContain('Alice Acme');
     expect(el.querySelector('[data-testid="sign-in"]')).toBeNull();
-    expect(el.querySelector('.avatar')?.textContent?.trim()).toBe('AA');
+    expect(el.querySelector('.avatar [aria-hidden="true"]')?.textContent?.trim()).toBe('AA');
+  });
+
+  it('the avatar opens the account menu: My projects, My quotes, account details, sign out', async () => {
+    const el = await render(fakeOidc(true, { name: 'Alice Acme' }));
+    expect(el.querySelector('[data-testid="account-menu"]')).toBeNull();
+
+    const button = el.querySelector<HTMLButtonElement>('[data-testid="account-button"]')!;
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    button.click();
+    TestBed.tick();
+
+    const menu = el.querySelector('[data-testid="account-menu"]')!;
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((m) => m.textContent?.trim())).toEqual(['My projects', 'My quotes', 'Account details', 'Sign out']);
+    expect(el.querySelector('nav')?.textContent).not.toContain('My quotes'); // moved out of the main nav
   });
 
   it('syncs contact consent once when signed in', async () => {

@@ -1,11 +1,11 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { describeError } from '../../core/api/describe-error';
 import {
-  Answer, Answers, GROUP_TITLES, GuidedLine, GuidedQuote, Length, MeasureForm, OptionGroup, ProductOptions, SectionForm,
-  defaultMeasureForm, measurementsBody, missingLabels, problemMessages, toChoices,
+  Answer, Answers, GROUP_TITLES, GuidedLine, GuidedQuote, Length, MeasureForm, OptionGroup, ProductOptions, Project, SectionForm,
+  answersFromChoices, defaultMeasureForm, formFromAnswers, measurementsBody, missingLabels, problemMessages, toChoices,
 } from './guided';
 
 const LAYOUTS = [
@@ -93,8 +93,8 @@ const LAYOUTS = [
           }
         }
 
-        @if (preview.hasValue()) {
-          @let m = preview.value()!.measurement;
+        @if (pq(); as pqv) {
+          @let m = pqv.measurement;
           <p class="measured" data-testid="measured">
             @switch (m.kind) {
               @case ('countertop') { {{ m.values['sqft'] | number: '1.0-2' }} sq ft in total, {{ m.values['edgeFt'] }} ft of finished edge }
@@ -165,11 +165,11 @@ const LAYOUTS = [
         }
       }
 
-      <!-- Step 7: the quote -->
+      <!-- Step 7: the quote (in a project, the workspace shows the quote card instead) -->
+      @if (!projectId() || showPreview()) {
       <section class="card step quote" data-testid="step-quote">
         <h2 class="card-title">Your quote <span class="muted">· ZIP {{ zip() }}</span></h2>
-        @if (preview.hasValue()) {
-          @let q = preview.value()!;
+        @if (pq(); as q) {
           @for (grp of lineGroups(q.lines); track grp.group) {
             <h3 class="group-title">{{ titles[grp.group] }}</h3>
             <table class="lines">
@@ -192,20 +192,23 @@ const LAYOUTS = [
           @if (open().length) {
             <p class="warning" data-testid="missing"><span>Still to choose: {{ open().join(', ') }}.</span></p>
           }
-          <div class="actions">
-            <button type="button" class="btn btn-primary" (click)="save()" [disabled]="!q.complete || saving()" data-testid="save-guided">
-              {{ saving() ? 'Saving…' : 'Save quote' }}
-            </button>
-          </div>
+          @if (!projectId()) {
+            <div class="actions">
+              <button type="button" class="btn btn-primary" (click)="save()" [disabled]="!q.complete || saving()" data-testid="save-guided">
+                {{ saving() ? 'Saving…' : 'Save quote' }}
+              </button>
+            </div>
+          }
           @if (saved.error()) {
             <div class="warning" role="alert"><span>{{ describe(saved.error()) }}</span></div>
           }
-        } @else if (preview.isLoading()) {
+        } @else if (pricingLoading()) {
           <p class="muted">Pricing…</p>
-        } @else if (preview.error() && !measureProblems().length) {
+        } @else if (pricingError() && !measureProblems().length) {
           <div class="warning" role="alert" data-testid="preview-problem"><span>{{ previewProblem() }}</span></div>
         }
       </section>
+      }
     }
   `,
   styles: `
@@ -239,6 +242,12 @@ const LAYOUTS = [
 export class GuidedStepsComponent {
   readonly zip = input.required<string>();
   readonly sku = input.required<string>();
+  /** 2n-f: in a project, saved answers are restored and every change is saved to it (PUT answers). */
+  readonly projectId = input<string | null>(null);
+  readonly project = input<Project | null>(null);
+  /** In a project: show the live preview card too (the workspace usually shows its own quote card). */
+  readonly showPreview = input(false);
+  readonly projectChange = output<Project>();
 
   private readonly router = inject(Router);
   protected readonly layouts = LAYOUTS;
@@ -261,6 +270,8 @@ export class GuidedStepsComponent {
 
   protected readonly form = signal<MeasureForm>(defaultMeasureForm());
   protected readonly answers = signal<Answers>({});
+  /** In a project, nothing is sent until the saved answers are back in the form (else defaults would overwrite them). */
+  private readonly restored = signal(false);
 
   /** The preview request: re-sent whenever a measurement or answer changes. */
   private readonly body = computed(() => {
@@ -275,8 +286,24 @@ export class GuidedStepsComponent {
   });
   protected readonly preview = httpResource<GuidedQuote>(() => {
     const body = this.body();
-    return body ? { url: '/api/quotes/guided/preview', method: 'POST', body } : undefined;
+    return body && !this.projectId() ? { url: '/api/quotes/guided/preview', method: 'POST', body } : undefined;
   });
+
+  /** Project mode: save the answers; the server answers with the project, re-priced. */
+  protected readonly projectSave = httpResource<Project>(() => {
+    const id = this.projectId();
+    const body = this.body();
+    if (!id || !body || !this.restored()) return undefined;
+    return { url: `/api/projects/${encodeURIComponent(id)}/answers`, method: 'PUT', body: { sku: body.sku, measurements: body.measurements, choices: body.choices } };
+  });
+
+  /** The priced quote to show, from whichever mode. */
+  protected readonly pq = computed<GuidedQuote | null>(() => {
+    if (this.projectId()) return this.projectSave.hasValue() ? this.projectSave.value()!.preview : (this.project()?.preview ?? null);
+    return this.preview.hasValue() ? this.preview.value()! : null;
+  });
+  protected readonly pricingLoading = computed(() => (this.projectId() ? this.projectSave.isLoading() : this.preview.isLoading()));
+  protected readonly pricingError = computed(() => (this.projectId() ? this.projectSave.error() : this.preview.error()));
 
   private readonly saveRequest = signal<ReturnType<typeof this.body> | null>(null);
   protected readonly saved = httpResource<{ id: string }>(() => {
@@ -285,15 +312,31 @@ export class GuidedStepsComponent {
   });
   protected readonly saving = computed(() => this.saved.isLoading());
 
-  protected readonly open = computed(() =>
-    this.preview.hasValue() && this.opts() ? missingLabels(this.opts()!.groups, this.preview.value()!.missing) : [],
-  );
+  protected readonly open = computed(() => (this.pq() && this.opts() ? missingLabels(this.opts()!.groups, this.pq()!.missing) : []));
   protected readonly measureProblems = computed(() => {
+    if (this.projectId()) {
+      const p = this.projectSave.hasValue() ? this.projectSave.value()! : this.project();
+      return p?.previewErrors.map((e) => e.message) ?? [];
+    }
     const err = this.preview.error() as { error?: { code?: string } } | undefined;
     return err?.error?.code === 'invalid_measurements' ? problemMessages(err) : [];
   });
 
   constructor() {
+    // Project mode: once the steps are known, put the saved answers back into the form.
+    effect(() => {
+      const o = this.opts();
+      if (!o || this.restored()) return;
+      const p = this.project();
+      if (this.projectId() && p) {
+        this.form.set(formFromAnswers(o.measure, p.answers));
+        this.answers.set(answersFromChoices(o.groups, p.answers.choices));
+      }
+      this.restored.set(true);
+    });
+    effect(() => {
+      if (this.projectSave.hasValue()) this.projectChange.emit(this.projectSave.value()!);
+    });
     // Saved: go to My quotes, where it's listed with its ZIP.
     effect(() => {
       if (this.saved.hasValue()) void this.router.navigate(['/quotes'], { queryParams: { saved: this.saved.value()!.id } });
@@ -383,11 +426,11 @@ export class GuidedStepsComponent {
     return order.map((group) => ({ group, lines: lines.filter((l) => l.group === group) })).filter((g) => g.lines.length);
   }
   protected save(): void {
-    if (this.preview.hasValue() && this.preview.value()!.complete) this.saveRequest.set(this.body());
+    if (this.pq()?.complete) this.saveRequest.set(this.body());
   }
   protected previewProblem(): string {
-    const messages = problemMessages(this.preview.error());
-    return messages.length ? messages.join(' ') : describeError(this.preview.error() as Parameters<typeof describeError>[0]);
+    const messages = problemMessages(this.pricingError());
+    return messages.length ? messages.join(' ') : describeError(this.pricingError() as Parameters<typeof describeError>[0]);
   }
   protected unitLabel(unit: string): string {
     return unit === 'sqft' ? 'sq ft' : unit;

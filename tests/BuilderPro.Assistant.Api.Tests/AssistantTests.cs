@@ -68,6 +68,13 @@ public sealed class FakePlatform : IPlatformApi
         }));
     }
 
+    public Task<JsonElement> PutAsync(string path, object body, CancellationToken ct)
+    {
+        Calls.Add("PUT " + path);
+        Bodies.Add(JsonSerializer.Serialize(body));
+        return Task.FromResult(TryAnswer("PUT " + path, out var answer) ? answer : JsonSerializer.SerializeToElement(new { error = 404 }));
+    }
+
     public Task<JsonElement> PostAsync(string path, object body, CancellationToken ct)
     {
         Calls.Add("POST " + path);
@@ -92,6 +99,7 @@ public sealed class ScriptedModel : IChatClient
     public int Calls { get; private set; }
     public IList<ChatMessage> LastMessages { get; private set; } = [];
     public string? LastInstructions { get; private set; }
+    public IReadOnlyList<string> LastToolNames { get; private set; } = [];
 
     /// <summary>When set, every model call fails with this HTTP status (as the OpenAI SDK does).</summary>
     public int? FailWith { get; set; }
@@ -102,6 +110,7 @@ public sealed class ScriptedModel : IChatClient
         if (FailWith is int status) throw new ClientResultException("model failed", new StubResponse(status));
         LastMessages = [.. messages];
         LastInstructions = options?.Instructions;
+        LastToolNames = [.. (options?.Tools ?? []).Select(t => t.Name)];
         var sawToolResult = LastMessages.Any(m => m.Contents.OfType<FunctionResultContent>().Any());
         var reply = sawToolResult || Tool.Length == 0
             ? new ChatMessage(ChatRole.Assistant, FinalText)
@@ -462,4 +471,79 @@ public sealed class ChatTextTests
     [Fact]
     public void Money_survives_cleaning() =>
         Assert.Equal(PriceGuard.AmountsIn("**$2,890.28**"), PriceGuard.AmountsIn(ChatText.Clean("**$2,890.28**")));
+}
+
+/// <summary>2n-f: in a project, the concierge saves answers to it and can issue its quote, never accept it.</summary>
+public sealed class ConciergeProjectTests
+{
+    private static readonly Guid ProjectId = Guid.Parse("6b8e8645-fe5c-4041-84f3-2504f9ce327c");
+
+    private static object ProjectJson(decimal total) => new
+    {
+        id = ProjectId, title = "Kitchen countertops", zip = "62701", stage = "configure", sku = "CT-QTZ",
+        preview = new { total, subtotal = 6693.50m, tax = 552.21m, lines = new[] { new { sku = "CT-QTZ", unitPrice = 89.00m, lineTotal = 4939.50m } }, missing = Array.Empty<string>() },
+    };
+
+    private static AssistantFactory Factory(string finalText, string tool = "save_answers")
+    {
+        var f = new AssistantFactory();
+        f.Platform.Responses[$"GET /api/projects/{ProjectId}"] = ProjectJson(5347.01m);
+        f.Platform.Responses[$"PUT /api/projects/{ProjectId}/answers"] = ProjectJson(7245.71m);
+        f.Model.Tool = tool;
+        f.Model.ToolArgs = new()
+        {
+            ["sku"] = "CT-QTZ",
+            ["measurements"] = JsonSerializer.SerializeToElement(new { layout = "l-island", countertop = new[] { new { widthFt = 10, widthIn = 0, depthIn = 25 }, new { widthFt = 8, widthIn = 0, depthIn = 25 } }, island = new[] { new { widthFt = 6, widthIn = 0, depthIn = 36 } } }),
+            ["choices"] = JsonSerializer.SerializeToElement(new[] { new { group = "ct-edge", sku = "EDGE-OGEE" } }),
+        };
+        f.Model.FinalText = finalText;
+        return f;
+    }
+
+    private static Task<HttpResponseMessage> Talk(AssistantFactory f, string text, Guid? project = null) =>
+        f.As("alice").PostAsJsonAsync("/api/assistant/concierge", new { messages = new[] { new { role = "user", content = text } }, projectId = project ?? ProjectId });
+
+    [Fact]
+    public async Task In_a_project_the_concierge_saves_answers_to_it_and_reports_the_change()
+    {
+        using var f = Factory("Saved. Your project now totals $7,245.71.");
+        var reply = (await (await Talk(f, "Ogee edge please")).Content.ReadFromJsonAsync<ConciergeReply>())!;
+
+        Assert.False(reply.Guarded);
+        Assert.True(reply.ProjectChanged);
+        Assert.Equal(["save_answers"], reply.ToolsUsed);          // loading the project as context is not a tool
+        Assert.Contains($"PUT /api/projects/{ProjectId}/answers", f.Platform.Calls);
+        Assert.Contains("\"widthIn\":96", f.Platform.Bodies.Single());   // 8 ft, converted in code
+        Assert.Contains("\"stage\":\"configure\"", string.Join("\n", f.Model.LastMessages.Where(m => m.Role == ChatRole.System).Select(m => m.Text)));
+    }
+
+    [Fact]
+    public async Task The_projects_own_total_may_be_quoted_but_not_an_invented_one()
+    {
+        using var ok = Factory("Right now the project is $5,347.01.", tool: "");
+        Assert.False((await (await Talk(ok, "What's my total?")).Content.ReadFromJsonAsync<ConciergeReply>())!.Guarded);
+
+        using var bad = Factory("It should come to about $5,000.00.", tool: "");
+        Assert.True((await (await Talk(bad, "Roughly?")).Content.ReadFromJsonAsync<ConciergeReply>())!.Guarded);
+    }
+
+    [Fact]
+    public async Task There_is_no_accept_tool_and_the_rule_is_in_the_instructions()
+    {
+        using var f = Factory("Please press Accept quote yourself.", tool: "");
+        await Talk(f, "Accept it for me");
+        Assert.Contains("NEVER accept", f.Model.LastInstructions);
+        Assert.DoesNotContain(f.Model.LastToolNames, n => n.Contains("accept", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("issue_quote", f.Model.LastToolNames);
+        Assert.DoesNotContain(f.Platform.Calls, c => c.Contains("/accept"));
+    }
+
+    [Fact]
+    public async Task Someone_elses_project_is_refused_before_the_model()
+    {
+        using var f = Factory("x");
+        var r = await Talk(f, "Hi", Guid.NewGuid());   // the platform answers {error: 404}
+        Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
+        Assert.Equal(0, f.Model.Calls);
+    }
 }

@@ -46,16 +46,56 @@ public sealed class DraftLedger
 /// Feet + inches are converted to inches here, in code, so the model never does arithmetic.
 /// Every result goes through the turn's PriceLedger first (the price guard).
 /// </summary>
-public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts)
+public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts, Guid? projectId = null)
 {
-    public IList<AITool> All() =>
-    [
-        AIFunctionFactory.Create(CheckZipAsync, "check_zip"),
-        AIFunctionFactory.Create(ListProjectTypesAsync, "list_project_types"),
-        AIFunctionFactory.Create(FindProductsAsync, "find_products"),
-        AIFunctionFactory.Create(GetProjectStepsAsync, "get_project_steps"),
-        AIFunctionFactory.Create(PriceDraftAsync, "price_draft"),
-    ];
+    /// <summary>Set when a project tool changed the project this turn (the page re-reads it).</summary>
+    public bool ProjectChanged { get; private set; }
+
+    /// <summary>
+    /// Without a project: price a draft the page keeps (3b). In a project (2n-f): save answers to it and,
+    /// when complete, issue its numbered quote. Never accept: there is no tool, and the API refuses agents.
+    /// </summary>
+    public IList<AITool> All() => projectId is null
+        ?
+        [
+            AIFunctionFactory.Create(CheckZipAsync, "check_zip"),
+            AIFunctionFactory.Create(ListProjectTypesAsync, "list_project_types"),
+            AIFunctionFactory.Create(FindProductsAsync, "find_products"),
+            AIFunctionFactory.Create(GetProjectStepsAsync, "get_project_steps"),
+            AIFunctionFactory.Create(PriceDraftAsync, "price_draft"),
+        ]
+        :
+        [
+            AIFunctionFactory.Create(FindProductsAsync, "find_products"),
+            AIFunctionFactory.Create(GetProjectStepsAsync, "get_project_steps"),
+            AIFunctionFactory.Create(SaveAnswersAsync, "save_answers"),
+            AIFunctionFactory.Create(IssueQuoteAsync, "issue_quote"),
+        ];
+
+    [Description("Saves the project's product, measurements and answers, and returns the project re-priced by the store's pricing engine (preview with lines, total and missing steps). Send the full set each time: product sku, all measurements, all answers so far.")]
+    public async Task<JsonElement> SaveAnswersAsync(
+        string sku, DraftMeasurements measurements,
+        [Description("All answers so far, one per single step (sku or null for its none choice); quantity steps: one per option with its count.")] DraftChoice[]? choices = null,
+        CancellationToken ct = default)
+    {
+        var body = new
+        {
+            sku,
+            measurements = ToMeasurements(measurements),
+            choices = (choices ?? []).Select(c => new { group = c.Group, sku = c.Sku, quantity = c.Quantity }).ToArray(),
+        };
+        var result = await api.PutAsync($"/api/projects/{projectId}/answers", body, ct);
+        ProjectChanged |= result.ValueKind == JsonValueKind.Object && result.TryGetProperty("id", out _);
+        return Record("save_answers", result);
+    }
+
+    [Description("Issues the project's numbered quote (valid for 14 days) once every required step is answered. This does NOT accept it: only the customer can, with the Accept quote button.")]
+    public async Task<JsonElement> IssueQuoteAsync(CancellationToken ct = default)
+    {
+        var result = await api.PostAsync($"/api/projects/{projectId}/quote", new { }, ct);
+        ProjectChanged |= result.ValueKind == JsonValueKind.Object && result.TryGetProperty("id", out _);
+        return Record("issue_quote", result);
+    }
 
     [Description("Checks whether the store serves a project ZIP / postal code. Returns {zip, served}. Always the first step.")]
     public async Task<JsonElement> CheckZipAsync(string zip, CancellationToken ct = default) =>

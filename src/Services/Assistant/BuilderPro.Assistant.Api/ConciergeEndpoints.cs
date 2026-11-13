@@ -9,10 +9,10 @@ namespace BuilderPro.Assistant.Api;
 /// The page sends the conversation, the ZIP from the customer's account (if any) and the current
 /// draft (the last guided request the concierge priced), so the server keeps no chat state.
 /// </summary>
-public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null);
+public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null, Guid? ProjectId = null);
 
 /// <summary>Draft + Quote are set when the concierge priced a draft this turn; the page keeps the last ones.</summary>
-public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote);
+public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote, bool ProjectChanged = false);
 
 /// <summary>
 /// The concierge (3b): walks the customer through the guided quote (ZIP, project type, product,
@@ -53,6 +53,16 @@ public static class ConciergeEndpoints
         - Plain text for a chat bubble: short sentences, "- " lists. No tables, headings or bold.
         """;
 
+    /// <summary>Added in a project workspace (2n-f): the project replaces the page-held draft.</summary>
+    public const string ProjectInstructions = """
+        The customer is in their project workspace; the project already has its ZIP. The current project
+        (answers and its priced preview) is given as context.
+        - Use save_answers instead of price_draft: send the product sku, ALL measurements and ALL answers
+          so far every time; it saves them and returns the project re-priced. Report totals exactly as returned.
+        - When nothing is missing, you may call issue_quote: it gives the quote a number and a validity date.
+        - You can NEVER accept the quote. Tell the customer to review it and press "Accept quote" themselves.
+        """;
+
     public static IEndpointRouteBuilder MapConciergeEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/assistant/concierge", ChatAsync)
@@ -76,11 +86,26 @@ public static class ConciergeEndpoints
 
         var ledger = new PriceLedger();
         var drafts = new DraftLedger();
-        var agent = new ChatClientAgent(chat.Client, Instructions, "builderpro-concierge", "Guided quote concierge", new ConciergeTools(api, ledger, drafts).All());
+        var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId);
+        var instructions = request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;
+        var agent = new ChatClientAgent(chat.Client, instructions, "builderpro-concierge", "Guided quote concierge", tools.All());
 
         // What the page knows, as context (not as instructions from the customer).
-        var context = $"Customer's account ZIP: {(string.IsNullOrWhiteSpace(request.AccountZip) ? "unknown" : request.AccountZip)}.\n"
-            + $"Current draft (answers so far, priced by price_draft): {(request.Draft is { } draft ? draft.GetRawText() : "none yet")}";
+        string context;
+        if (request.ProjectId is Guid projectId)
+        {
+            // The project as the customer may see it (their token); its prices count as tool output for the guard.
+            var project = await api.GetAsync($"/api/projects/{projectId}", ct);
+            if (project.ValueKind != JsonValueKind.Object || !project.TryGetProperty("id", out _))
+                return AssistantEndpoints.Problem(StatusCodes.Status404NotFound, "project_not_found", "That project isn't yours or doesn't exist.");
+            ledger.RecordContext(project);
+            context = $"Current project: {project.GetRawText()}";
+        }
+        else
+        {
+            context = $"Customer's account ZIP: {(string.IsNullOrWhiteSpace(request.AccountZip) ? "unknown" : request.AccountZip)}.\n"
+                + $"Current draft (answers so far, priced by price_draft): {(request.Draft is { } draft ? draft.GetRawText() : "none yet")}";
+        }
         var messages = new List<ChatMessage> { new(ChatRole.System, context) };
         messages.AddRange(turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)));
 
@@ -91,8 +116,8 @@ public static class ConciergeEndpoints
         if (unbacked.Count > 0)
         {
             log.LogWarning("Price guard blocked a concierge reply with amounts no tool returned: {Amounts}", unbacked);
-            return Results.Ok(new ConciergeReply(AssistantEndpoints.GuardedReply, true, ledger.ToolsUsed, drafts.Request, drafts.Quote));
+            return Results.Ok(new ConciergeReply(AssistantEndpoints.GuardedReply, true, ledger.ToolsUsed, drafts.Request, drafts.Quote, tools.ProjectChanged));
         }
-        return Results.Ok(new ConciergeReply(reply, false, ledger.ToolsUsed, drafts.Request, drafts.Quote));
+        return Results.Ok(new ConciergeReply(reply, false, ledger.ToolsUsed, drafts.Request, drafts.Quote, tools.ProjectChanged));
     }
 }

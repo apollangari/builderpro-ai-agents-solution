@@ -175,3 +175,138 @@ export function problemMessages(err: unknown): string[] {
   const body = (err as { error?: { errors?: { message: string }[] } } | undefined)?.error;
   return body?.errors?.map((e) => e.message) ?? [];
 }
+
+// ---- 2n-f: projects (GET/PUT /api/projects/...) ----
+export type ProjectStage = 'discover' | 'configure' | 'quote' | 'deposit' | 'measure' | 'install';
+
+export interface IssuedQuote {
+  id: string;
+  number: number;
+  status: 'issued' | 'accepted';
+  validUntil: string;
+  acceptedAt: string | null;
+  current: boolean;
+  expired: boolean;
+  currency: string;
+  lines: GuidedLine[];
+  subtotal: number;
+  taxRate: number;
+  tax: number;
+  total: number;
+}
+
+export interface ProjectAnswers {
+  measurements?: Record<string, unknown> | null;
+  choices?: Choice[];
+}
+
+export interface Project {
+  id: string;
+  title: string;
+  zip: string;
+  stage: ProjectStage;
+  sku: string | null;
+  answers: ProjectAnswers;
+  preview: GuidedQuote | null;
+  previewErrors: { code: string; message: string }[];
+  quote: IssuedQuote | null;
+  updatedAt: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  title: string;
+  zip: string;
+  stage: ProjectStage;
+  quoteNumber: number | null;
+  quoteTotal: number | null;
+  currency: string | null;
+  updatedAt: string;
+}
+
+/** The workspace's stage rail, in order. */
+export const STAGES: { id: ProjectStage; label: string }[] = [
+  { id: 'discover', label: 'Discover' },
+  { id: 'configure', label: 'Configure' },
+  { id: 'quote', label: 'Quote' },
+  { id: 'deposit', label: 'Deposit' },
+  { id: 'measure', label: 'Measure visit' },
+  { id: 'install', label: 'Install' },
+];
+
+/** Saved measurements (inches, as the API takes them) back into the form (feet + inches). */
+export function formFromAnswers(kind: MeasureKind, answers: ProjectAnswers | null | undefined): MeasureForm {
+  const f = defaultMeasureForm();
+  const m = (answers?.measurements ?? null) as Record<string, any> | null;
+  if (!m) return f;
+  const toSection = (s: { widthIn: number; depthIn: number }): SectionForm => ({
+    width: { ft: Math.floor(s.widthIn / 12), in: Math.round((s.widthIn % 12) * 100) / 100 },
+    depthIn: s.depthIn,
+  });
+  if (kind === 'countertop' && m['countertop']) {
+    const c = m['countertop'];
+    f.countertop = {
+      layout: c.layout ?? 'straight',
+      countertop: (c.countertop ?? []).map(toSection),
+      island: (c.island ?? []).map(toSection),
+      backsplash: (c.backsplash ?? []).map(toSection),
+    };
+  }
+  if (kind === 'roof' && m['roof']) f.roof = { ...f.roof, ...m['roof'] };
+  if (kind === 'area' && Array.isArray(m['rooms'])) f.rooms = m['rooms'];
+  if (kind === 'count' && typeof m['count'] === 'number') f.count = m['count'];
+  return f;
+}
+
+/** Saved choices back into per-step answers (the inverse of toChoices). */
+export function answersFromChoices(groups: readonly OptionGroup[], choices: readonly Choice[] | null | undefined): Answers {
+  const result: Record<string, Answer> = {};
+  for (const g of groups) {
+    const mine = (choices ?? []).filter((c) => c.group === g.id);
+    if (!mine.length) continue;
+    if (g.selection === 'single') {
+      result[g.id] = { kind: 'single', sku: mine[0].sku };
+    } else if (mine.some((c) => c.sku === null)) {
+      result[g.id] = { kind: 'quantity', counts: {}, none: true };
+    } else {
+      result[g.id] = { kind: 'quantity', counts: Object.fromEntries(mine.map((c) => [c.sku!, c.quantity ?? 0])), none: false };
+    }
+  }
+  return result;
+}
+
+/** Rectangles (inches) for the layout sketch: sections laid out as the layout says, island apart. */
+export interface SketchRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: 'top' | 'island';
+}
+export function layoutSketch(answers: ProjectAnswers | null | undefined): { rects: SketchRect[]; width: number; height: number } {
+  const c = ((answers?.measurements ?? null) as Record<string, any> | null)?.['countertop'];
+  if (!c) return { rects: [], width: 0, height: 0 };
+  const tops: { widthIn: number; depthIn: number }[] = c.countertop ?? [];
+  const islands: { widthIn: number; depthIn: number }[] = c.island ?? [];
+  const rects: SketchRect[] = [];
+  const first = tops[0];
+  if (first) rects.push({ x: 0, y: 0, w: first.widthIn, h: first.depthIn, kind: 'top' });
+  // Second run turns down the left wall (L); a third turns down the right wall (U); more continue the first run.
+  tops.slice(1).forEach((s, i) => {
+    if (i === 0) rects.push({ x: 0, y: first.depthIn, w: s.depthIn, h: s.widthIn, kind: 'top' });
+    else if (i === 1) rects.push({ x: first.widthIn - s.depthIn, y: first.depthIn, w: s.depthIn, h: s.widthIn, kind: 'top' });
+    else rects.push({ x: first.widthIn + (i - 2) * 6, y: 0, w: s.widthIn, h: s.depthIn, kind: 'top' });
+  });
+  const right = Math.max(0, ...rects.map((r) => r.x + r.w));
+  const bottom = Math.max(0, ...rects.map((r) => r.y + r.h));
+  let ix = Math.max(36, (right - (islands[0]?.widthIn ?? 0)) / 2 + 18);
+  for (const s of islands) {
+    rects.push({ x: ix, y: (first?.depthIn ?? 0) + 42, w: s.widthIn, h: s.depthIn, kind: 'island' });
+    ix += s.widthIn + 12;
+  }
+  return {
+    rects,
+    width: Math.max(right, ...rects.map((r) => r.x + r.w)),
+    height: Math.max(bottom, ...rects.map((r) => r.y + r.h)),
+  };
+}

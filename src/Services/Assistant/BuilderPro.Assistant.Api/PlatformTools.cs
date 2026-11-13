@@ -13,6 +13,7 @@ public interface IPlatformApi
 {
     Task<JsonElement> GetAsync(string path, CancellationToken ct);
     Task<JsonElement> PostAsync(string path, object body, CancellationToken ct);
+    Task<JsonElement> PutAsync(string path, object body, CancellationToken ct);
 }
 
 /// <summary>
@@ -26,6 +27,9 @@ public sealed class HttpPlatformApi(IHttpClientFactory factory, IHttpContextAcce
 
     public Task<JsonElement> PostAsync(string path, object body, CancellationToken ct) =>
         SendAsync(new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) }, ct);
+
+    public Task<JsonElement> PutAsync(string path, object body, CancellationToken ct) =>
+        SendAsync(new HttpRequestMessage(HttpMethod.Put, path) { Content = JsonContent.Create(body) }, ct);
 
     private async Task<JsonElement> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {

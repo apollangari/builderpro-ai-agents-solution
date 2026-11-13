@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
@@ -56,9 +56,23 @@ interface MyMembership {
         <span class="project" data-testid="project-label">{{ theme.projectLabel() }}</span>
 
         @if (isAuthenticated()) {
-          <button type="button" class="btn" (click)="signOut()">Sign out</button>
-          <span class="avatar" [attr.title]="displayName()" aria-hidden="true">{{ initials() }}</span>
-          <span class="sr-only" data-testid="user-name">{{ displayName() }}</span>
+          <!-- Account menu: the customer's own things live behind the avatar (owner, 2n-f). -->
+          <div class="account" (keydown.escape)="menuOpen.set(false)">
+            <button type="button" class="avatar" [attr.aria-expanded]="menuOpen()" aria-haspopup="true" aria-controls="account-menu"
+                    (click)="menuOpen.set(!menuOpen())" data-testid="account-button">
+              <span aria-hidden="true">{{ initials() }}</span>
+              <span class="sr-only">Account menu for </span><span class="sr-only" data-testid="user-name">{{ displayName() }}</span>
+            </button>
+            @if (menuOpen()) {
+              <div class="menu card" id="account-menu" role="menu" data-testid="account-menu" (click)="menuOpen.set(false)">
+                <p class="who">{{ displayName() }}</p>
+                <a role="menuitem" routerLink="/projects" data-testid="menu-projects">My projects</a>
+                <a role="menuitem" routerLink="/quotes">My quotes</a>
+                <a role="menuitem" routerLink="/me">Account details</a>
+                <button type="button" role="menuitem" class="signout" (click)="signOut()" data-testid="menu-signout">Sign out</button>
+              </div>
+            }
+          </div>
         } @else {
           <button type="button" class="btn btn-primary" (click)="signIn()" data-testid="sign-in">Sign in</button>
         }
@@ -70,8 +84,6 @@ interface MyMembership {
         <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
         <a routerLink="/assistant" routerLinkActive="active">Concierge</a>
         <a routerLink="/quote" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" data-testid="nav-quote">Quote@if (draft.count()) { <span class="count">{{ draft.count() }}</span> }</a>
-        <a routerLink="/quotes" routerLinkActive="active">My quotes</a>
-        <a routerLink="/me" routerLinkActive="active">Who am I</a>
       </nav>
     </header>
     @if (notMemberHere(); as store) {
@@ -118,10 +130,22 @@ interface MyMembership {
 
     .avatar {
       display: grid; place-items: center; flex: none;
-      width: 44px; height: 44px; border-radius: 50%;
+      width: 44px; height: 44px; border-radius: 50%; border: 0; cursor: pointer;
       background: var(--bp-accent-soft); color: var(--bp-accent);
       font-family: var(--bp-font-heading); font-weight: 600; font-size: .9rem;
     }
+    .account { position: relative; }
+    .menu {
+      position: absolute; right: 0; top: calc(100% + .4rem); z-index: 20; min-width: 13rem;
+      display: grid; gap: .1rem; padding: .4rem;
+    }
+    .menu .who { margin: .2rem .6rem .4rem; font-weight: 600; color: var(--bp-ink-muted); font-size: .85rem; }
+    .menu a, .menu .signout {
+      display: flex; align-items: center; min-height: var(--bp-tap); padding: 0 .75rem; border-radius: var(--bp-radius-md);
+      color: var(--bp-ink); text-decoration: none; background: none; border: 0; font: inherit; text-align: left; cursor: pointer;
+    }
+    .menu a:hover, .menu .signout:hover { background: var(--bp-surface-muted); }
+    .menu .signout { border-top: 1px solid var(--bp-border); border-radius: 0 0 var(--bp-radius-md) var(--bp-radius-md); }
 
     .picker select {
       min-height: var(--bp-tap); padding: 0 .75rem; border-radius: var(--bp-radius-md);
@@ -165,6 +189,7 @@ export class App {
   protected readonly selected = inject(SelectedStore);
   /** 1g: on a store's subdomain (acme.…) the store comes from the address and the picker is hidden. */
   protected readonly host = inject(HostStore);
+  protected readonly menuOpen = signal(false);
   /** On a store's address while signed in to an account that isn't one of its customers: say so, offer to join. */
   protected readonly notMemberHere = computed(() => {
     if (!this.host.info.hasValue() || !this.isAuthenticated() || this.stores.status() !== 'resolved') return null;

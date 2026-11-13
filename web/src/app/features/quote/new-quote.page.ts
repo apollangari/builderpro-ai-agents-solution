@@ -1,11 +1,12 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource } from '../catalog/catalog.api';
 import { categoryTabs, keyAttributes } from '../catalog/picker';
-import { GuidedStepsComponent } from './guided-steps.component';
+import { Project } from './guided';
 
 /** GET /api/catalog/service-area answer. Mirrors ServiceAreaDto in C#: yes/no only, never the store's ZIP lists. */
 interface ServiceArea {
@@ -24,7 +25,7 @@ interface ServiceArea {
  */
 @Component({
   selector: 'bp-new-quote-page',
-  imports: [CurrencyPipe, GuidedStepsComponent],
+  imports: [CurrencyPipe],
   template: `
     <div class="page">
       <header class="page-head">
@@ -124,9 +125,16 @@ interface ServiceArea {
           </section>
         }
 
-        <!-- Steps 4-7: measurements, options, protection, quote (fresh for each product) -->
-        @for (c of chosenList(); track c.sku) {
-          <bp-guided-steps [zip]="servedZip()!" [sku]="c.sku" />
+        <!-- 2n-f: choosing a product starts the project; its workspace takes it from there. -->
+        @if (chosen(); as c) {
+          <section class="card step" data-testid="step-start">
+            <h2 class="card-title">Start your project</h2>
+            <p>{{ c.name }} at {{ c.listPrice | currency: c.currency }} / {{ unitLabel(c.unit) }} for ZIP {{ servedZip() }}. Next: measurements, options and your quote, saved as you go.</p>
+            <button type="button" class="btn btn-primary" (click)="start()" [disabled]="starting()" data-testid="start-project">
+              {{ starting() ? 'Starting…' : 'Start project' }}
+            </button>
+            @if (startError()) { <div class="warning" role="alert"><span>{{ startError() }}</span></div> }
+          </section>
         }
       }
     </div>
@@ -203,12 +211,46 @@ export class NewQuotePage {
   });
   protected readonly inCategory = computed(() => this.products.value().filter((p) => p.category === this.category()));
   protected readonly chosen = computed(() => this.inCategory().find((p) => p.sku === this.selected()) ?? null);
-  /** 0 or 1 items, so the steps component is created fresh when the product changes. */
-  protected readonly chosenList = computed(() => (this.chosen() ? [this.chosen()!] : []));
+  // ---- 2n-f: create the project, save the product, open the workspace ----
+  private readonly router = inject(Router);
+  private readonly createReq = signal<{ zip: string; title: string } | null>(null);
+  private readonly created = httpResource<Project>(() => {
+    const body = this.createReq();
+    return body ? { url: '/api/projects', method: 'POST', body } : undefined;
+  });
+  private readonly productReq = signal<{ id: string; sku: string } | null>(null);
+  private readonly productSaved = httpResource<Project>(() => {
+    const r = this.productReq();
+    return r ? { url: `/api/projects/${encodeURIComponent(r.id)}/answers`, method: 'PUT', body: { sku: r.sku, measurements: null, choices: [] } } : undefined;
+  });
+  protected readonly starting = computed(() => this.created.isLoading() || this.productSaved.isLoading());
+  protected readonly startError = computed(() => {
+    const err = this.created.error() ?? this.productSaved.error();
+    return err ? this.describe(err) : null;
+  });
+
+  protected start(): void {
+    const c = this.chosen();
+    const zip = this.servedZip();
+    if (!c || !zip) return;
+    const type = this.types().find((t) => t.id === c.category)?.name ?? 'Project';
+    this.createReq.set({ zip, title: `${type} · ${c.name}` });
+  }
 
   /** A project type's picture: a product of that type sold in this ZIP. */
   protected pictureOf(category: string): string | null {
     return this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
+  }
+
+  constructor() {
+    effect(() => {
+      if (this.created.hasValue() && this.chosen() && !this.productReq()) {
+        this.productReq.set({ id: this.created.value()!.id, sku: this.chosen()!.sku });
+      }
+    });
+    effect(() => {
+      if (this.productSaved.hasValue()) void this.router.navigate(['/projects', this.productSaved.value()!.id]);
+    });
   }
 
   protected useZip(zip: string): void {
