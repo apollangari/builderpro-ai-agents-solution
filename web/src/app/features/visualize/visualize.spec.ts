@@ -112,3 +112,62 @@ describe('VisualizePage', () => {
     expect(el.querySelector('[data-testid="visualize-empty"]')).not.toBeNull();
   });
 });
+
+describe('PhotoOverlayComponent', () => {
+  // jsdom has no canvas or image decoding: these tests cover the logic around the canvas.
+  async function render() {
+    const { PhotoOverlayComponent } = await import('./photo-overlay.component');
+    const fixture = TestBed.createComponent(PhotoOverlayComponent);
+    fixture.componentRef.setInput('product', product('CT-Q', 'countertops'));
+    await fixture.whenStable();
+    return { fixture, comp: fixture.componentInstance as unknown as { onFile(f: File | undefined): void }, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('says the photo stays on the device', async () => {
+    const { el } = await render();
+    expect(el.textContent).toContain("isn't uploaded anywhere");
+  });
+
+  it('refuses files that are not images, or larger than 15 MB, without reading them', async () => {
+    const createUrl = vi.spyOn(URL, 'createObjectURL');
+    const { fixture, comp, el } = await render();
+
+    comp.onFile(new File(['x'], 'notes.pdf', { type: 'application/pdf' }));
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="photo-error"]')?.textContent).toContain('not an image');
+
+    const big = new File(['x'], 'huge.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(big, 'size', { value: 16 * 1024 * 1024 });
+    comp.onFile(big);
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="photo-error"]')?.textContent).toContain('15 MB');
+
+    expect(createUrl).not.toHaveBeenCalled();
+    createUrl.mockRestore();
+  });
+
+  it('reads an image into a local object URL (nothing is sent anywhere)', async () => {
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:local-photo');
+    const { comp } = await render();
+
+    comp.onFile(new File(['x'], 'kitchen.jpg', { type: 'image/jpeg' }));
+
+    expect(createUrl).toHaveBeenCalledOnce();
+    createUrl.mockRestore();
+  });
+
+  it('default corners form a usable quad, and arrow keys move a corner', async () => {
+    const { defaultQuad, PhotoOverlayComponent } = await import('./photo-overlay.component');
+    const { isUsable } = await import('./homography');
+    expect(isUsable(defaultQuad(800, 600))).toBe(true);
+
+    const fixture = TestBed.createComponent(PhotoOverlayComponent);
+    fixture.componentRef.setInput('product', product('CT-Q', 'countertops'));
+    const comp = fixture.componentInstance as unknown as { corners: () => { x: number; y: number }[]; nudge(i: number, e: KeyboardEvent): void };
+    const before = comp.corners()[0]!;
+    comp.nudge(0, new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true }));
+    expect(comp.corners()[0]).toEqual({ x: before.x + 20, y: before.y });
+    comp.nudge(0, new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    expect(comp.corners()[0]).toEqual({ x: before.x + 20, y: before.y - 4 });
+  });
+});

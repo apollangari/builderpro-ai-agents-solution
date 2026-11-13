@@ -1,19 +1,20 @@
-import { Component, computed, input, linkedSignal } from '@angular/core';
+import { Component, computed, input, linkedSignal, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource, productsResource } from '../catalog/catalog.api';
 import { SceneComponent } from './scene.component';
+import { PhotoOverlayComponent } from './photo-overlay.component';
 import { sceneFor } from './scene';
 
 /**
  * "See it in your home" (2l). Without a photo, the product is shown in its category's default
  * scene; the customer can flip through the other products of the same category in place.
- * (Photo upload with 4-corner perspective is 2l-b.)
+ * "My photo" switches to the customer's own photo with 4-corner perspective (2l-b).
  */
 @Component({
   selector: 'bp-visualize-page',
-  imports: [CurrencyPipe, RouterLink, SceneComponent],
+  imports: [CurrencyPipe, RouterLink, SceneComponent, PhotoOverlayComponent],
   template: `
     <div class="page">
       <header class="page-head">
@@ -35,7 +36,17 @@ import { sceneFor } from './scene';
         </div>
       } @else {
         <div class="layout">
-          <bp-scene [scene]="scene()!" [product]="product()!" />
+          <div>
+            <div class="modes" role="tablist" aria-label="How to view it">
+              <button type="button" role="tab" class="tab" [class.active]="!usePhoto()" [attr.aria-selected]="!usePhoto()" (click)="usePhoto.set(false)" data-testid="mode-sample">Sample room</button>
+              <button type="button" role="tab" class="tab" [class.active]="usePhoto()" [attr.aria-selected]="usePhoto()" (click)="usePhoto.set(true)" data-testid="mode-photo">My photo</button>
+            </div>
+            @if (usePhoto()) {
+              <bp-photo-overlay [product]="product()!" />
+            } @else {
+              <bp-scene [scene]="scene()!" [product]="product()!" />
+            }
+          </div>
           <aside class="card side">
             <h2 class="card-title">{{ product()!.name }}</h2>
             <p class="price">{{ product()!.listPrice | currency: product()!.currency }} <span>{{ product()!.unit === 'each' ? 'each' : 'per ' + product()!.unit }}</span></p>
@@ -65,6 +76,12 @@ import { sceneFor } from './scene';
     </div>
   `,
   styles: `
+    .modes { display: flex; gap: .4rem; margin-bottom: .75rem; }
+    .tab {
+      min-height: var(--bp-tap); padding: 0 1rem; border-radius: 999px; border: 1px solid var(--bp-border-strong);
+      background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .tab.active { background: var(--bp-accent); border-color: var(--bp-accent); color: var(--bp-on-accent); }
     .layout { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 1.25rem; align-items: start; }
     @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
     .side { display: grid; gap: .75rem; }
@@ -91,6 +108,9 @@ export class VisualizePage {
   protected readonly products = productsResource();
   protected readonly categories = categoriesResource();
   protected readonly describe = describeError;
+
+  /** Sample scene (default) or the customer's own photo (2l-b). */
+  protected readonly usePhoto = signal(false);
 
   /** Starts as ?sku= (and resets when the URL changes), then follows the option buttons. */
   protected readonly selected = linkedSignal(() => this.sku());
