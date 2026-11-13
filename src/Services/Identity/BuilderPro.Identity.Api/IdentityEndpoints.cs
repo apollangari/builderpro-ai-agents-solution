@@ -52,6 +52,7 @@ public static class IdentityEndpoints
 
         api.MapConsentEndpoints();
         api.MapProfileEndpoints();   // profile edit + change password (owner request)
+        api.MapCustomerSearch();     // 1i: a salesperson finds the store's customers
 
         api.MapGet("/memberships/mine", MineAsync)
             .WithSummary("The caller's ACTIVE memberships with store names: what the store picker offers.");

@@ -228,6 +228,8 @@ export interface Project {
   quote: IssuedQuote | null;
   updatedAt: string;
   deposit?: DepositInfo | null;
+  /** 1i: the salesperson who prepared it for the customer. */
+  preparedBy?: string | null;
 }
 
 export interface ProjectSummary {
@@ -239,6 +241,10 @@ export interface ProjectSummary {
   quoteTotal: number | null;
   currency: string | null;
   updatedAt: string;
+  /** 1i: the salesperson who prepared it. */
+  preparedBy?: string | null;
+  /** 1i: whose project (staff lists only). */
+  customerId?: string | null;
 }
 
 /** The workspace's stage rail, in order. */

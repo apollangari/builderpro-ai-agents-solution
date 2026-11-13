@@ -32,6 +32,9 @@ public interface IDepositStore
 
     /// <summary>pending -> paid, once. False when it isn't pending (already paid, or not this tenant's).</summary>
     Task<bool> MarkPaidAsync(string tenantId, Guid id, DateTimeOffset at, string paidBy, CancellationToken ct);
+
+    /// <summary>Paid deposits of one tenant, paid in [from, to) (1i commission report).</summary>
+    Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }
 
 /// <summary>Deposits in Postgres (quotes schema v5).</summary>
@@ -108,6 +111,15 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
             new { id, tenantId, at = at.UtcDateTime, paidBy }, cancellationToken: ct)) == 1;
     }
 
+    public async Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<Row>(new CommandDefinition(
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND status = 'paid' AND paid_at >= @from AND paid_at < @to ORDER BY paid_at",
+            new { tenantId, from = from.UtcDateTime, to = to.UtcDateTime }, cancellationToken: ct));
+        return [.. rows.Select(r => r.ToDomain())];
+    }
+
     private sealed class Row
     {
         public Guid Id { get; init; }
@@ -166,6 +178,15 @@ public sealed class InMemoryDepositStore : IDepositStore
             if (i < 0) return Task.FromResult(false);
             _rows[i] = _rows[i] with { Status = DepositStatus.Paid, PaidAt = at, PaidBy = paidBy };
             return Task.FromResult(true);
+        }
+    }
+
+    public Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyList<Deposit>>([.. _rows
+                .Where(d => d.TenantId == tenantId && d.Paid && d.PaidAt >= from && d.PaidAt < to).OrderBy(d => d.PaidAt)]);
         }
     }
 }

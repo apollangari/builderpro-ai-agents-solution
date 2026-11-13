@@ -507,6 +507,54 @@
       }
     },
     {
+      "id": "5a700000-0000-4000-8000-000000000007",
+      "username": "sam",
+      "email": "sam@acme.test",
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "Sales",
+      "enabled": true,
+      "realmRoles": [
+        "staff"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant_id": [
+          "t-acme"
+        ],
+        "phone": [
+          "+1 555 010 0007"
+        ],
+        "contactConsent": [
+          "none"
+        ],
+        "contactHours": [
+          "business"
+        ],
+        "addressLine1": [
+          "Sam Test Street 1"
+        ],
+        "city": [
+          "Prosper"
+        ],
+        "region": [
+          "TX"
+        ],
+        "postalCode": [
+          "75078"
+        ],
+        "country": [
+          "US"
+        ]
+      }
+    },
+    {
       "id": "9a700000-0000-4000-8000-000000000006",
       "username": "pat",
       "email": "pat@builderpro.test",

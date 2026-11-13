@@ -46,10 +46,32 @@ public sealed class FakeTenantLookup : ITenantLookup
         ["carol"] = TenantLookup.Ok("t-globex", ReadWrite, "c-carol"),
         ["nora"] = TenantLookup.Ok("t-acme", [], "c-nora"),                 // member without quote scopes
         ["erin"] = TenantLookup.Fail(StatusCodes.Status403Forbidden, "no_membership"),
+        ["sam"] = TenantLookup.Ok("t-acme", ["quotes.read", "quotes.write", "sales"]),   // 1i: acme salesperson
+        ["sue"] = TenantLookup.Ok("t-acme", ["quotes.read", "quotes.write", "sales"]),   // another acme salesperson
+        ["boss"] = TenantLookup.Ok("t-acme", ["quotes.read", "sales.report"]),          // acme sales manager
+        ["gus"] = TenantLookup.Ok("t-globex", ["quotes.read", "quotes.write", "sales"]), // globex salesperson
     };
 
     public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) =>
         Task.FromResult(Answers[http.User.FindFirst("sub")!.Value]);
+}
+
+/// <summary>Stands in for Identity's customer check (1i): acme has alice and abe, globex has carol.</summary>
+public sealed class FakeCustomerDirectory(FakeTenantLookup tenants) : ICustomerDirectory
+{
+    public bool Down { get; set; }
+
+    public async Task<bool?> IsCustomerAsync(HttpContext http, string customerId, CancellationToken ct)
+    {
+        if (Down) return null;
+        var tenant = await tenants.ResolveAsync(http, ct);
+        return tenant.TenantId switch
+        {
+            "t-acme" => customerId is "c-alice" or "c-abe",
+            "t-globex" => customerId is "c-carol",
+            _ => false,
+        };
+    }
 }
 
 /// <summary>Stands in for the Catalog: per-tenant price lists, or "down".</summary>
@@ -109,16 +131,26 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public InMemoryProjectStore Projects { get; } = new();
     public InMemoryDepositStore Deposits { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
+    public FakeCustomerDirectory Customers { get; }
+    private readonly Dictionary<string, string> _settings = [];
+
+    /// <summary>Extra configuration; call before the first request (the host is built then).</summary>
+    public void Configure(string key, string value) => _settings[key] = value;
     public FakeCatalog Catalog { get; }
     public FakeTimeProvider Clock { get; } = new(Now);
 
-    public QuotesFactory() => Catalog = new FakeCatalog(Tenants);
+    public QuotesFactory()
+    {
+        Catalog = new FakeCatalog(Tenants);
+        Customers = new FakeCustomerDirectory(Tenants);
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("Auth:Authority", "http://idp.test/realms/builderpro");
         builder.UseSetting("Auth:RequireHttpsMetadata", "false");
         builder.UseSetting("ConnectionStrings:quotesdb", "Host=unused.test;Database=quotesdb");
+        foreach (var (k, v) in _settings) builder.UseSetting(k, v);
         builder.ConfigureTestServices(s =>
         {
             s.RemoveAll<IQuoteStore>();
@@ -129,6 +161,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IDepositStore>(Deposits);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
+            s.RemoveAll<ICustomerDirectory>();
+            s.AddSingleton<ICustomerDirectory>(Customers);
             s.RemoveAll<ICatalogPrices>();
             s.AddSingleton<ICatalogPrices>(Catalog);
             s.RemoveAll<TimeProvider>();
@@ -861,5 +895,109 @@ public sealed class DepositApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
         });
         var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);   // back at the quote step: get and accept an updated quote first
+    }
+}
+
+
+/// <summary>1i: a salesperson prepares the project; the customer accepts and pays; the sale is credited for commission.</summary>
+public sealed class SalespersonTests
+{
+    private static readonly object CompleteAnswers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<ProjectDto> Prepare(QuotesFactory f, string salesperson = "sam", string customer = "c-alice")
+    {
+        var r = await f.As(salesperson).PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = customer, title = "Kitchen for Alice" });
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        var p = (await r.Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(HttpStatusCode.OK, (await f.As(salesperson).PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await f.As(salesperson).PostAsync($"/api/projects/{p.Id}/quote", null)).StatusCode);
+        return p;
+    }
+
+    private static async Task Buy(QuotesFactory f, Guid projectId, string customer = "alice")
+    {
+        Assert.Equal(HttpStatusCode.OK, (await f.As(customer).PostAsync($"/api/projects/{projectId}/accept", null)).StatusCode);
+        var deposit = (await (await f.As(customer).PostAsync($"/api/projects/{projectId}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal(HttpStatusCode.OK, (await f.As(customer).PostAsync($"/api/deposits/{deposit.Id}/pay", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_salesperson_prepares_a_quote_the_customer_sees_it_accepts_and_pays_and_the_sale_is_credited()
+    {
+        using var f = new QuotesFactory();
+        var p = await Prepare(f);
+
+        // The customer sees it among their own projects, prepared by the salesperson.
+        var mine = await f.As("alice").GetFromJsonAsync<ProjectSummaryDto[]>("/api/projects");
+        Assert.Contains(mine!, x => x.Id == p.Id && x.PreparedBy != null && x.QuoteNumber != null);
+
+        // Accepting and paying stay the customer's: the salesperson can't.
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("sam").PostAsync($"/api/projects/{p.Id}/accept", null)).StatusCode);
+        await Buy(f, p.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("sam").PostAsync($"/api/projects/{p.Id}/deposit", null)).StatusCode);
+
+        var report = (await f.As("sam").GetFromJsonAsync<CommissionReportDto>("/api/sales/commission"))!;
+        var line = Assert.Single(report.Salespeople);
+        var quoted = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!.Quote!.Total;
+        Assert.Equal((1, quoted), (line.Sales, line.SoldTotal));
+        Assert.Null(line.Commission);   // no rate configured: sales only
+        Assert.Equal(p.Id, Assert.Single(line.Lines).ProjectId);
+    }
+
+    [Fact]
+    public async Task Only_a_salesperson_starts_projects_for_customers_of_their_own_store()
+    {
+        using var f = new QuotesFactory();
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = "c-alice" })).StatusCode);   // staff, no sales scope
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("abe").PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = "c-alice" })).StatusCode);   // a customer
+        Assert.Equal(HttpStatusCode.NotFound, (await f.As("sam").PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = "c-carol" })).StatusCode);   // globex's customer
+        Assert.Equal(HttpStatusCode.BadRequest, (await f.As("sam").PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = "not valid!" })).StatusCode);
+        f.Customers.Down = true;
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await f.As("sam").PostAsJsonAsync("/api/projects", new { zip = "62701", customerId = "c-alice" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_salesperson_cannot_change_a_colleagues_customer_project()
+    {
+        using var f = new QuotesFactory();
+        var p = await Prepare(f);
+        var r = await f.As("sue").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Contains("not_your_customer", await r.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("sue").PostAsync($"/api/projects/{p.Id}/quote", null)).StatusCode);
+        // The customer may still change their own project.
+        Assert.Equal(HttpStatusCode.OK, (await f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Salespeople_see_their_own_commission_managers_see_everyones_at_the_store_rate()
+    {
+        using var f = new QuotesFactory();
+        f.Configure("Sales:CommissionPercent:t-acme", "3");
+        var a = await Prepare(f, "sam", "c-alice");
+        await Buy(f, a.Id, "alice");
+        var b = await Prepare(f, "sue", "c-abe");
+        await Buy(f, b.Id, "abe");
+        var notPaid = await Prepare(f, "sam", "c-alice");   // quoted, never paid: not a sale
+        _ = notPaid;
+
+        var sams = (await f.As("sam").GetFromJsonAsync<CommissionReportDto>("/api/sales/commission"))!;
+        var mine = Assert.Single(sams.Salespeople);
+        Assert.Equal((1, 3m), (mine.Sales, mine.CommissionPercent));
+        Assert.Equal(Math.Round(mine.SoldTotal * 0.03m, 2, MidpointRounding.AwayFromZero), mine.Commission);
+
+        var all = (await f.As("boss").GetFromJsonAsync<CommissionReportDto>("/api/sales/commission"))!;
+        Assert.Equal(2, all.Salespeople.Count);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("alice").GetAsync("/api/sales/commission")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").GetAsync("/api/sales/commission")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await f.As("sam").GetAsync("/api/sales/commission?from=2026-12-01T00:00:00Z&to=2026-11-01T00:00:00Z")).StatusCode);
+        var gus = (await f.As("gus").GetFromJsonAsync<CommissionReportDto>("/api/sales/commission"))!;
+        Assert.Equal(0, Assert.Single(gus.Salespeople).Sales);   // other store: nothing of acme's
     }
 }

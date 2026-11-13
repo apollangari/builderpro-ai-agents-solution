@@ -25,7 +25,7 @@ import { ProjectSummary, STAGES } from '../quote/guided';
             <a class="card row" [routerLink]="['/projects', p.id]" data-testid="project-row">
               <div>
                 <strong>{{ p.title }}</strong>
-                <span class="muted">ZIP {{ p.zip }} · {{ stageLabel(p.stage) }} · updated {{ p.updatedAt | date: 'medium' }}</span>
+                <span class="muted">ZIP {{ p.zip }} · {{ stageLabel(p.stage) }} · updated {{ p.updatedAt | date: 'medium' }}@if (p.preparedBy) { · prepared by {{ p.preparedBy }} }</span>
               </div>
               @if (p.quoteNumber) {
                 <span class="total">Q-{{ p.quoteNumber }} · {{ p.quoteTotal | currency: p.currency ?? 'USD' }}</span>

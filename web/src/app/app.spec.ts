@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
+import { StoreFeatures } from './core/tenant/store-features';
 import { of } from 'rxjs';
 import { App } from './app';
 
@@ -24,7 +25,10 @@ function fakeOidc(authenticated: boolean, user: Record<string, unknown> | null =
 async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = true, stores: unknown[] = []) {
   await TestBed.configureTestingModule({
     imports: [App],
-    providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: OidcSecurityService, useValue: oidc }],
+    providers: [
+      provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: OidcSecurityService, useValue: oidc },
+      { provide: StoreFeatures, useValue: { salesDesk: signal(false) } },
+    ],
   }).compileComponents();
   const fixture = TestBed.createComponent(App);
   TestBed.tick();

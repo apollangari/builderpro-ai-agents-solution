@@ -5,7 +5,8 @@ using BuilderPro.Security;
 namespace BuilderPro.Quotes.Api;
 
 // ---- Projects contract (2n-f). Requests carry answers, never prices. ----
-public sealed record CreateProjectRequest(string? Zip, string? Title = null);
+/// <summary>CustomerId: a salesperson (1i) starts the project on that customer's behalf; customers leave it out.</summary>
+public sealed record CreateProjectRequest(string? Zip, string? Title = null, string? CustomerId = null);
 public sealed record ProjectAnswersRequest(string? Sku, MeasurementInput? Measurements, GuidedChoiceDto[]? Choices, string? Title = null, string? Zip = null);
 
 public sealed record IssuedQuoteDto(
@@ -16,9 +17,10 @@ public sealed record IssuedQuoteDto(
 public sealed record ProjectDto(
     Guid Id, string Title, string Zip, string Stage, string? Sku, JsonElement Answers,
     GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt,
-    DepositDto? Deposit = null);
+    DepositDto? Deposit = null, string? PreparedBy = null);   // 1i: the salesperson who prepared it
 
-public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt);
+public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt,
+    string? PreparedBy = null, string? CustomerId = null);
 
 /// <summary>
 /// The project workspace's API (2n-f). A project holds the customer's answers; every read re-prices
@@ -46,11 +48,25 @@ public static class ProjectEndpoints
 
     internal static async Task<IResult> CreateAsync(
         CreateProjectRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog, IProjectStore projects,
-        TimeProvider clock, AuthOptions auth, CancellationToken ct)
+        ICustomerDirectory customers, TimeProvider clock, AuthOptions auth, CancellationToken ct)
     {
         var (tenant, problem) = await GateAsync(http, tenants, QuoteEndpoints.WriteScope, ct);
         if (problem is not null) return problem;
         if (string.IsNullOrWhiteSpace(request.Zip)) return Problem(StatusCodes.Status400BadRequest, "invalid_zip", "Send the project's zip.");
+
+        // 1i: a salesperson starts it FOR a customer of this store. Accepting and paying stay the customer's.
+        var customerId = tenant!.CustomerId;
+        var onBehalf = request.CustomerId is not null;
+        if (onBehalf)
+        {
+            if (tenant.CustomerId is not null || !tenant.HasScope(SalesEndpoints.SalesScope))
+                return Problem(StatusCodes.Status403Forbidden, "sales_only", "Only a salesperson can start a project for a customer.");
+            if (!ClaimsNormalizer.IsIdentifier(request.CustomerId)) return Problem(StatusCodes.Status400BadRequest, "invalid_customer", "customerId is not a valid identifier.");
+            var known = await customers.IsCustomerAsync(http, request.CustomerId!, ct);
+            if (known is null) return Problem(StatusCodes.Status503ServiceUnavailable, "identity_unavailable", "Customers couldn't be checked right now.");
+            if (known is false) return Problem(StatusCodes.Status404NotFound, "customer_not_found", "No such customer in this store.");
+            customerId = request.CustomerId;
+        }
 
         var zipCheck = await catalog.GetAsync(http, request.Zip.Trim(), ct);
         if (zipCheck.ZipProblem is "invalid_zip") return Problem(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1).");
@@ -59,8 +75,9 @@ public static class ProjectEndpoints
 
         var now = clock.GetUtcNow();
         var user = ClaimsNormalizer.FromPrincipal(http.User, auth);
-        var project = new Project(Guid.NewGuid(), tenant!.TenantId!, tenant.CustomerId, user.UserKey, Title(request.Title) ?? "New project",
-            request.Zip.Trim(), null, "{}", ProjectStages.Discover, null, now, now);
+        var project = new Project(Guid.NewGuid(), tenant.TenantId!, customerId, user.UserKey, Title(request.Title) ?? "New project",
+            request.Zip.Trim(), null, "{}", ProjectStages.Discover, null, now, now,
+            SalespersonKey: onBehalf ? user.UserKey : null, SalespersonName: onBehalf ? SalesEndpoints.NameOf(http.User, user) : null);
         await projects.CreateAsync(project, ct);
         return Results.Created($"/api/projects/{project.Id}", await ToDtoAsync(project, http, catalog, null, config: null, ct));
     }
@@ -74,7 +91,8 @@ public static class ProjectEndpoints
         foreach (var p in list)
         {
             var q = p.QuoteId is Guid qid ? await quotes.FindAsync(tenant.TenantId!, tenant.CustomerId, qid, ct) : null;
-            result.Add(new(p.Id, p.Title, p.Zip, p.Stage, q?.Issue?.Number, q?.Priced.Total.Amount, q?.Priced.Total.Currency, p.UpdatedAt));
+            result.Add(new(p.Id, p.Title, p.Zip, p.Stage, q?.Issue?.Number, q?.Priced.Total.Amount, q?.Priced.Total.Currency, p.UpdatedAt,
+                p.SalespersonName, tenant.CustomerId is null ? p.CustomerId : null));
         }
         return Results.Ok(result);
     }
@@ -90,10 +108,11 @@ public static class ProjectEndpoints
 
     internal static async Task<IResult> AnswersAsync(
         Guid id, ProjectAnswersRequest request, HttpContext http, ITenantLookup tenants, IProjectStore projects, IQuoteStore quotes,
-        ICatalogPrices catalog, IConfiguration config, TimeProvider clock, CancellationToken ct)
+        ICatalogPrices catalog, IConfiguration config, TimeProvider clock, AuthOptions auth, CancellationToken ct)
     {
         var (tenant, project, problem) = await LoadAsync(id, http, tenants, projects, QuoteEndpoints.WriteScope, ct);
         if (problem is not null) return problem;
+        if (StaffCannotWrite(tenant!, project!, http, auth)) return NotYourCustomer();
         if (ProjectStages.IsLocked(project!.Stage))
             return Problem(StatusCodes.Status409Conflict, "project_locked", "Your deposit is paid; the measure visit confirms the details from here.");
         if (request.Sku is not null && !ClaimsNormalizer.IsIdentifier(request.Sku))
@@ -120,6 +139,7 @@ public static class ProjectEndpoints
     {
         var (tenant, project, problem) = await LoadAsync(id, http, tenants, projects, QuoteEndpoints.WriteScope, ct);
         if (problem is not null) return problem;
+        if (StaffCannotWrite(tenant!, project!, http, auth)) return NotYourCustomer();
         if (ProjectStages.IsLocked(project!.Stage))
             return Problem(StatusCodes.Status409Conflict, "project_locked", "Your deposit is paid; this quote is the order.");
         if (project.Sku is null) return Problem(StatusCodes.Status400BadRequest, "incomplete_quote", "Choose a product first.");
@@ -175,6 +195,17 @@ public static class ProjectEndpoints
     }
 
     // ---- helpers ----
+
+    /// <summary>
+    /// 1i: on a customer's project, staff may change answers or issue quotes only as the salesperson who
+    /// prepared it. Customers are already limited to their own projects by the store query.
+    /// </summary>
+    internal static bool StaffCannotWrite(TenantLookup tenant, Project project, HttpContext http, AuthOptions auth) =>
+        tenant.CustomerId is null && project.CustomerId is not null
+        && project.SalespersonKey != ClaimsNormalizer.FromPrincipal(http.User, auth).UserKey;
+
+    private static IResult NotYourCustomer() =>
+        Problem(StatusCodes.Status403Forbidden, "not_your_customer", "Only the customer, or the salesperson who prepared this project, can change it.");
 
     private static async Task<(TenantLookup? Tenant, IResult? Problem)> GateAsync(HttpContext http, ITenantLookup tenants, string scope, CancellationToken ct)
     {
@@ -256,7 +287,7 @@ public static class ProjectEndpoints
 
         using var answers = JsonDocument.Parse(p.AnswersJson);
         return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt,
-            deposit is null ? null : DepositEndpoints.ToDto(deposit, http));
+            deposit is null ? null : DepositEndpoints.ToDto(deposit, http), PreparedBy: p.SalespersonName);
     }
 
     private static IResult Problem(int status, string code, string detail) =>

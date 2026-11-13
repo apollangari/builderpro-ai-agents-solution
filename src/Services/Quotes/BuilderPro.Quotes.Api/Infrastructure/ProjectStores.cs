@@ -8,7 +8,8 @@ public sealed class PostgresProjectStore(NpgsqlDataSource db) : IProjectStore
 {
     private const string Columns = """
         id AS Id, tenant_id AS TenantId, customer_id AS CustomerId, created_by AS CreatedBy, title AS Title, zip AS Zip,
-        sku AS Sku, answers::text AS AnswersJson, stage AS Stage, quote_id AS QuoteId, created_at AS CreatedAt, updated_at AS UpdatedAt
+        sku AS Sku, answers::text AS AnswersJson, stage AS Stage, quote_id AS QuoteId, created_at AS CreatedAt, updated_at AS UpdatedAt,
+        salesperson_key AS SalespersonKey, salesperson_name AS SalespersonName
         """;
 
     private const string Visible = "tenant_id = @tenantId AND (@customerId::text IS NULL OR customer_id = @customerId)";
@@ -37,6 +38,12 @@ public sealed class PostgresProjectStore(NpgsqlDataSource db) : IProjectStore
                 updated_at timestamptz NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_projects_tenant ON quotes.projects(tenant_id, customer_id, updated_at DESC);
             INSERT INTO quotes.schema_history(version) VALUES (4) ON CONFLICT DO NOTHING;
+
+            -- v6 (1i): prepared by a salesperson on the customer's behalf (their sale, for commission).
+            ALTER TABLE quotes.projects ADD COLUMN IF NOT EXISTS salesperson_key text NULL;
+            ALTER TABLE quotes.projects ADD COLUMN IF NOT EXISTS salesperson_name text NULL;
+            CREATE INDEX IF NOT EXISTS ix_projects_salesperson ON quotes.projects(tenant_id, salesperson_key) WHERE salesperson_key IS NOT NULL;
+            INSERT INTO quotes.schema_history(version) VALUES (6) ON CONFLICT DO NOTHING;
             """, cancellationToken: ct));
     }
 
@@ -44,8 +51,10 @@ public sealed class PostgresProjectStore(NpgsqlDataSource db) : IProjectStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO quotes.projects(id, tenant_id, customer_id, created_by, title, zip, sku, answers, stage, quote_id, created_at, updated_at)
-            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Title, @Zip, @Sku, @AnswersJson::jsonb, @Stage, @QuoteId, @CreatedAt, @UpdatedAt)
+            INSERT INTO quotes.projects(id, tenant_id, customer_id, created_by, title, zip, sku, answers, stage, quote_id, created_at, updated_at,
+                                       salesperson_key, salesperson_name)
+            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Title, @Zip, @Sku, @AnswersJson::jsonb, @Stage, @QuoteId, @CreatedAt, @UpdatedAt,
+                    @SalespersonKey, @SalespersonName)
             """, Args(p), cancellationToken: ct));
     }
 
@@ -78,6 +87,7 @@ public sealed class PostgresProjectStore(NpgsqlDataSource db) : IProjectStore
     private static object Args(Project p) => new
     {
         p.Id, p.TenantId, p.CustomerId, p.CreatedBy, p.Title, p.Zip, p.Sku, p.AnswersJson, p.Stage, p.QuoteId,
+        p.SalespersonKey, p.SalespersonName,
         CreatedAt = p.CreatedAt.UtcDateTime, UpdatedAt = p.UpdatedAt.UtcDateTime,
     };
 
@@ -95,9 +105,12 @@ public sealed class PostgresProjectStore(NpgsqlDataSource db) : IProjectStore
         public Guid? QuoteId { get; init; }
         public DateTime CreatedAt { get; init; }
         public DateTime UpdatedAt { get; init; }
+        public string? SalespersonKey { get; init; }
+        public string? SalespersonName { get; init; }
 
         public Project ToDomain() => new(Id, TenantId, CustomerId, CreatedBy, Title, Zip, Sku, AnswersJson, Stage, QuoteId,
-            new DateTimeOffset(DateTime.SpecifyKind(CreatedAt, DateTimeKind.Utc)), new DateTimeOffset(DateTime.SpecifyKind(UpdatedAt, DateTimeKind.Utc)));
+            new DateTimeOffset(DateTime.SpecifyKind(CreatedAt, DateTimeKind.Utc)), new DateTimeOffset(DateTime.SpecifyKind(UpdatedAt, DateTimeKind.Utc)),
+            SalespersonKey, SalespersonName);
     }
 }
 

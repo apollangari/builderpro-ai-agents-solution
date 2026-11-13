@@ -25,6 +25,10 @@ builder.Services.AddBuilderProAuth(builder.Configuration);
 builder.Services.AddTenantLookup(builder.Configuration);
 
 // List prices: read from the Catalog service with the caller's token (LEARN 2d).
+// 1i: "is this a customer of my store?" asked from Identity with the salesperson's token.
+builder.Services.AddHttpClient<ICustomerDirectory, IdentityCustomerDirectory>(c =>
+    c.BaseAddress = new Uri(builder.Configuration["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
+
 builder.Services.AddHttpClient<ICatalogPrices, CatalogPriceClient>(c =>
     c.BaseAddress = new Uri(builder.Configuration["Quotes:CatalogBaseUrl"] ?? "http://catalog"));
 
@@ -46,6 +50,7 @@ app.MapQuoteEndpoints();
 app.MapGuidedQuoteEndpoints();   // 2n-b..e
 app.MapProjectEndpoints();       // 2n-f
 app.MapDepositEndpoints();       // 6a
+app.MapSalesEndpoints();         // 1i
 
 app.Run();
 

@@ -25,6 +25,17 @@ public sealed class FakeUserDirectory : IUserDirectory
     public Task<bool> VerifyPasswordAsync(string userId, string password, CancellationToken ct) =>
         Task.FromResult(Users.TryGetValue(userId, out var u) && u.Password == password);
 
+    public bool SearchDown { get; set; }
+
+    public Task<IReadOnlyList<DirectoryUser>> SearchAsync(string text, int max, CancellationToken ct)
+    {
+        if (SearchDown) throw new HttpRequestException("directory down");
+        return Task.FromResult<IReadOnlyList<DirectoryUser>>([.. Users
+            .Where(u => $"{u.Key} {u.Value.Profile.FirstName} {u.Value.Profile.LastName} {u.Value.Profile.Email}".Contains(text, StringComparison.OrdinalIgnoreCase))
+            .Take(max)
+            .Select(u => new DirectoryUser(u.Key, u.Value.Profile.FirstName, u.Value.Profile.LastName, u.Value.Profile.Email, u.Value.Profile.Phone, u.Value.Profile.PostalCode))]);
+    }
+
     public Task<(PasswordChange Result, string? Message)> SetPasswordAsync(string userId, string newPassword, CancellationToken ct)
     {
         if (newPassword.Length < 10) return Task.FromResult<(PasswordChange, string?)>((PasswordChange.Rejected, "The new password is too short."));

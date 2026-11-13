@@ -8,7 +8,8 @@ import { signal } from '@angular/core';
 import { StoreFeatures } from '../../core/tenant/store-features';
 /** The store's package for the page (1h), without asking the server. */
 function fakeFeatures(concierge = true, help = true) {
-  return { concierge: signal(concierge), helpChat: signal(help), anyChat: signal(concierge || help), known: signal(true), features: signal([]) };
+  return { concierge: signal(concierge), helpChat: signal(help), anyChat: signal(concierge || help), known: signal(true), features: signal([]),
+    scopes: signal<string[]>([]), isCustomer: signal(true), salesperson: signal(false), salesDesk: signal(false) };
 }
 
 

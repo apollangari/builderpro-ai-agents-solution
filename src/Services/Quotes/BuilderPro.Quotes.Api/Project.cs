@@ -17,7 +17,9 @@ public sealed record Project(
     string Stage,            // ProjectStages
     Guid? QuoteId,           // the latest issued quote
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? SalespersonKey = null,    // 1i: prepared by a salesperson for the customer; their sale (commission)
+    string? SalespersonName = null);
 
 /// <summary>The stage rail. Deposit, measure visit and install arrive with 6a-6c.</summary>
 public static class ProjectStages

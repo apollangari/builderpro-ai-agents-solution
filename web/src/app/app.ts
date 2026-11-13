@@ -7,6 +7,7 @@ import { PendingSignup } from './features/signup/pending-signup';
 import { SelectedStore } from './core/tenant/selected-store';
 import { HostStore } from './core/tenant/host-store';
 import { QuoteDraft } from './features/quote/quote-draft';
+import { StoreFeatures } from './core/tenant/store-features';
 
 /** GET /api/identity/memberships/mine. Mirrors MyMembershipDto in C#. */
 interface MyMembership {
@@ -68,6 +69,9 @@ interface MyMembership {
                 <p class="who">{{ displayName() }}</p>
                 <a role="menuitem" routerLink="/projects" data-testid="menu-projects">My projects</a>
                 <a role="menuitem" routerLink="/quotes">My quotes</a>
+                @if (features.salesDesk()) {
+                  <a role="menuitem" routerLink="/sales" data-testid="menu-sales">Sales</a>
+                }
                 <a role="menuitem" routerLink="/account" data-testid="menu-account">Account</a>
                 <button type="button" role="menuitem" class="signout" (click)="signOut()" data-testid="menu-signout">Sign out</button>
               </div>
@@ -180,6 +184,8 @@ export class App {
   );
 
   protected readonly selected = inject(SelectedStore);
+  /** 1i: the Sales link for salespeople and sales managers. */
+  protected readonly features = inject(StoreFeatures);
   /** 1g: on a store's subdomain (acme.…) the store comes from the address and the picker is hidden. */
   protected readonly host = inject(HostStore);
   protected readonly menuOpen = signal(false);

@@ -14,6 +14,9 @@ public sealed record UserProfile(
 
 public enum PasswordChange { Changed, Rejected }
 
+/// <summary>A search hit (1i salesperson's customer search): the directory's user id and contact basics.</summary>
+public sealed record DirectoryUser(string Id, string FirstName, string LastName, string Email, string? Phone, string? PostalCode);
+
 /// <summary>
 /// The user store behind sign-in (Keycloak locally, Entra in Azure later). The Identity service is the
 /// ONLY code that talks to it, with its own confidential client: the browser never gets admin rights.
@@ -30,6 +33,9 @@ public interface IUserDirectory
 
     /// <summary>Sets a new password under the directory's password policy; Rejected + message when it breaks the policy.</summary>
     Task<(PasswordChange Result, string? Message)> SetPasswordAsync(string userId, string newPassword, CancellationToken ct);
+
+    /// <summary>Users whose name, email or username contains the text (at most max).</summary>
+    Task<IReadOnlyList<DirectoryUser>> SearchAsync(string text, int max, CancellationToken ct);
 }
 
 public sealed class KeycloakOptions
@@ -118,6 +124,22 @@ public sealed class KeycloakUserDirectory(HttpClient http, KeycloakOptions optio
         if (response.IsSuccessStatusCode) return (PasswordChange.Changed, null);
         var body = await response.Content.ReadAsStringAsync(ct);
         return (PasswordChange.Rejected, PolicyMessage(ErrorMessage(body)));
+    }
+
+    public async Task<IReadOnlyList<DirectoryUser>> SearchAsync(string text, int max, CancellationToken ct)
+    {
+        var url = $"{options.BaseUrl}/admin/realms/{options.Realm}/users?search={Uri.EscapeDataString(text)}&max={max}&briefRepresentation=false";
+        var response = await SendAsync(HttpMethod.Get, url, null, ct);
+        response.EnsureSuccessStatusCode();
+        return [.. (await response.Content.ReadFromJsonAsync<JsonArray>(ct) ?? [])
+            .OfType<JsonObject>()
+            .Where(u => u["id"] is not null && u["serviceAccountClientId"] is null)
+            .Select(u =>
+            {
+                var p = ToProfile(u);
+                return new DirectoryUser(u["id"]!.GetValue<string>(), p.FirstName, p.LastName, p.Email,
+                    string.IsNullOrEmpty(p.Phone) ? null : p.Phone, string.IsNullOrEmpty(p.PostalCode) ? null : p.PostalCode);
+            })];
     }
 
     private async Task<JsonObject?> GetUserAsync(string userId, CancellationToken ct)

@@ -25,7 +25,7 @@ import { StoreFeatures } from '../../core/tenant/store-features';
       } @else if (project(); as p) {
         <header class="page-head head">
           <div>
-            <span class="eyebrow">Project · ZIP {{ p.zip }}</span>
+            <span class="eyebrow">Project · ZIP {{ p.zip }}@if (p.preparedBy) { · prepared by {{ p.preparedBy }} }</span>
             <h1 data-testid="project-title">{{ p.title }}</h1>
           </div>
           <a routerLink="/projects" class="btn">My projects</a>
@@ -101,23 +101,29 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                   <p class="ok" data-testid="held">Deposit of {{ p.deposit!.amount | currency: p.deposit!.currency }} paid on {{ p.deposit!.paidAt | date: 'mediumDate' }}. Your price is held; next is the measure visit.</p>
                 } @else if (q.status === 'accepted' && q.current && !q.expired) {
                   <p data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. Pay a {{ depositPercent() }}% deposit to hold this price; until then it can change.</p>
+                  @if (!features.isCustomer()) {
+                    <p class="muted small" data-testid="customer-pays">The customer pays the deposit in their own account.</p>
+                  } @else {
                   <div class="actions">
                     <button type="button" class="btn btn-primary" (click)="payDeposit()" [disabled]="busy()" data-testid="pay-deposit">
                       Pay {{ depositPercent() }}% deposit@if (p.deposit) { ({{ p.deposit.amount | currency: p.deposit.currency }}) }
                     </button>
                   </div>
+                  }
                 } @else if (q.expired) {
                   <p class="warning"><span>This quote expired.</span></p>
                   <button type="button" class="btn btn-primary" (click)="issue()" [disabled]="busy()">Get an updated quote</button>
                 } @else if (!q.current) {
                   <p class="warning" data-testid="outdated"><span>Your answers changed since this quote.</span></p>
                   <button type="button" class="btn btn-primary" (click)="issue()" [disabled]="busy() || !p.preview?.complete" data-testid="reissue">Get an updated quote</button>
+                } @else if (!features.isCustomer()) {
+                  <p class="muted small" data-testid="customer-accepts">Valid until {{ q.validUntil | date: 'mediumDate' }}. The customer sees this quote under My projects and accepts it there.</p>
                 } @else {
                   <div class="actions">
                     <button type="button" class="btn btn-primary" (click)="accept()" [disabled]="busy()" data-testid="accept-quote">Accept quote</button>
                     <button type="button" class="btn" (click)="ask(q.number)" data-testid="ask-quote">Ask about this quote</button>
                   </div>
-                  <p class="muted small">Accepting holds this price until {{ q.validUntil | date: 'mediumDate' }}. You confirm every step yourself: the concierge can prepare things, but never accepts or pays for you.</p>
+                  <p class="muted small">Valid until {{ q.validUntil | date: 'mediumDate' }}. After accepting, a {{ depositPercent() }}% deposit holds the price. You confirm every step yourself: the concierge can prepare things, but never accepts or pays for you.</p>
                 }
               } @else {
                 <h2 class="card-title">Your quote</h2>
