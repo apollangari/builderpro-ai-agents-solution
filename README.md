@@ -3,7 +3,7 @@
 An **agent-first** home-improvement platform, built as a **learning kit for senior developers**:
 small, working increments, each with its own `LEARN` guide and debugging labs.
 
-**Stack:** .NET 10 microservices · Aspire 13.5 · Angular 22 · Keycloak (dev) / Entra (prod) ·
+**Stack:** .NET 10 microservices · Aspire 13.6 · Angular 22 · Keycloak (dev) / Entra (prod) ·
 YARP · Python LangGraph 1.2.21 + Microsoft Agent Framework (.NET) · MCP · A2A · Microsoft Foundry ·
 Terraform.
 
@@ -55,3 +55,5 @@ docs/                           setup, branching, learning guides, ADRs
 
 Feature branches → `development` → `staging` → `main`, with hotfixes on their own path.
 See [docs/branching.md](docs/branching.md).
+
+What comes next: [docs/roadmap.md](docs/roadmap.md).
