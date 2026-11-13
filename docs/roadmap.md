@@ -32,7 +32,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 1e | **Sign-up + combined login with Google**: one branded (Navy & Sand) Keycloak login theme with username/password, **Continue with Google**, and **Create account** (self-registration with email verification). Google is a Keycloak identity provider (client id/secret as Aspire secret parameters, never in git). Same claims normalisation for Google users (`ExternalIdentityKey` stays stable per IdP). In Azure: Entra External ID with self-service sign-up + Google federation, same app code. **Onboarding:** a new user has no membership (403 `no_membership` today); decide how they get one, see open question below | New user can sign up with email or Google, lands signed in, gets a membership per the onboarding rule; tests for claims from a Google-brokered token; Keycloak realm export updated |
+| 1e | **Sign-up + combined login with Google**: one branded (Navy & Sand) Keycloak login theme with username/password, **Continue with Google**, and **Create account** (self-registration with email verification). Google is a Keycloak identity provider (client id/secret as Aspire secret parameters, never in git). Same claims normalisation for Google users (`ExternalIdentityKey` stays stable per IdP). In Azure: Entra External ID with self-service sign-up + Google federation, same app code. **Onboarding:** sign-up link per store creates a customer membership (see Decisions) | New user can sign up with email or Google, lands signed in, gets a membership per the onboarding rule; tests for claims from a Google-brokered token; Keycloak realm export updated |
 | 2h | **Product categories + attributes** (Catalog): fixed category list (countertops, roofing, sheds, flooring, decking, cabinets, paint, windows-doors, fencing, labour), each with attribute definitions (countertop: material, colour, finish, thickness; shingles: style, colour, wind rating, bundles per square; shed: size, material, roof style). Schema v2: `category`, `attributes jsonb`, `image_url`. `GET /api/catalog/categories`, `GET /api/catalog/products?category=`. Seed several products per category for t-acme and t-globex | Tests: filter, unknown category, tenant isolation still holds |
 | 2i | **Sample images**: generated SVGs (stone textures, shingle swatches, shed drawings) in `web/public/products/`, referenced by `imageUrl`. No copied web photos (licensing) | Every seeded product has an image |
 | 2j | **Product picker UI**: category tabs, attribute filters, image cards; signal-first, Navy & Sand tokens | Component tests; 44 px targets |
@@ -45,12 +45,14 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
 
-## Open questions
+## Decisions
 
-- **1e onboarding:** which retailer does a self-registered customer belong to? Options: (a) a sign-up link per retailer
-  (`/signup?store=acme`) creates a customer membership for that retailer; (b) retailer staff invite customers by email;
-  (c) one default retailer for now. Until decided, new users see a friendly "ask your retailer for an invite" page
-  instead of an error.
+- **1e onboarding (2026-11-13): a sign-up link per store.** `/signup?store=acme` sends the visitor to Create account
+  (or Continue with Google) and, on first sign-in, the Identity service creates a **customer** membership for that
+  retailer with default customer scopes (`quotes.read`, `quotes.write`). Rules: only active stores with sign-up
+  enabled accept it; the store id is carried through the login round trip in signed state, never trusted from a
+  later request; an existing membership is never changed by a sign-up link; staff roles are never granted this way.
+  Without a store, a new user sees "ask your retailer for a sign-up link" instead of an error.
 
 ## Conventions
 
