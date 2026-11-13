@@ -6,7 +6,7 @@ const p = (sku: string, category: string, attributes: Record<string, string>, na
 });
 
 const countertops: Category = {
-  id: 'countertops', name: 'Countertops', defaultUnit: 'sqft', scene: 'kitchen',
+  id: 'countertops', name: 'Countertops', defaultUnit: 'sqft', scene: 'kitchen', typical: null,
   attributes: [
     { key: 'material', label: 'Material', kind: 'choice', required: true, options: ['quartz', 'granite', 'marble', 'butcher-block'], unit: null },
     { key: 'color', label: 'Colour', kind: 'text', required: true, options: null, unit: null },
@@ -14,8 +14,8 @@ const countertops: Category = {
     { key: 'thicknessCm', label: 'Thickness', kind: 'number', required: false, options: null, unit: 'cm' },
   ],
 };
-const sheds: Category = { id: 'sheds', name: 'Sheds', defaultUnit: 'each', scene: 'backyard', attributes: [] };
-const paint: Category = { id: 'paint', name: 'Paint', defaultUnit: 'each', scene: 'room-wall', attributes: [] };
+const sheds: Category = { id: 'sheds', name: 'Sheds', defaultUnit: 'each', scene: 'backyard', typical: null, attributes: [] };
+const paint: Category = { id: 'paint', name: 'Paint', defaultUnit: 'each', scene: 'room-wall', typical: null, attributes: [] };
 
 const products = [
   p('Q1', 'countertops', { material: 'quartz', color: 'White', finish: 'polished', thicknessCm: '3' }, 'Quartz white'),

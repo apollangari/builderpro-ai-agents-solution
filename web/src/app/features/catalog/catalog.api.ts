@@ -38,6 +38,7 @@ export interface Category {
   defaultUnit: string;
   scene: string; // the visualizer scene (2l)
   attributes: AttributeDefinition[];
+  typical: { quantity: number; description: string } | null; // compare prices products at this size (2k)
 }
 
 /** The platform's categories and their attribute definitions; the same for every retailer. */

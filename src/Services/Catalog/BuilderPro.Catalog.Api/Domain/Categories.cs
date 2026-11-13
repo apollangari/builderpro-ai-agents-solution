@@ -7,11 +7,15 @@ public enum AttributeKind { Text, Number, Choice }
 /// <summary>One attribute a product of a category may (or must) have.</summary>
 public sealed record AttributeDefinition(string Key, string Label, AttributeKind Kind, bool Required = false, IReadOnlyList<string>? Options = null, string? Unit = null);
 
+/// <summary>A typical project size for comparing products (2k), in the category's DefaultUnit.</summary>
+public sealed record TypicalSize(decimal Quantity, string Description);
+
 /// <summary>
 /// A product category: what it's called, how it's usually sold, and which attributes describe it.
 /// Scene names the default visualizer scene (2l) a product of this category is shown in.
+/// Typical is the project size compare (2k) prices every product at; null = no typical size.
 /// </summary>
-public sealed record CategoryDefinition(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinition> Attributes);
+public sealed record CategoryDefinition(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinition> Attributes, TypicalSize? Typical = null);
 
 /// <summary>
 /// The fixed category list (2h). Platform-owned on purpose: compare (2k), the visualizer (2l) and the
@@ -35,7 +39,7 @@ public static class Categories
             Text("color", "Colour", true),
             Choice("finish", "Finish", false, "polished", "honed", "leathered", "matte", "oiled"),
             Number("thicknessCm", "Thickness", "cm"),
-        ]),
+        ], new(30m, "an average kitchen (30 sq ft)")),
         new("roofing", "Roofing", "bundle", "house-roof",
         [
             Choice("type", "Type", true, "shingle", "underlayment", "flashing", "ventilation", "accessory"),
@@ -43,50 +47,50 @@ public static class Categories
             Text("color", "Colour"),
             Number("windRatingMph", "Wind rating", "mph"),
             Text("coverage", "Coverage"),
-        ]),
+        ], new(72m, "a 24-square roof (72 bundles)")),
         new("sheds", "Sheds", "each", "backyard",
         [
             Choice("material", "Material", true, "wood", "resin", "metal"),
             Text("size", "Size", true),
             Choice("roofStyle", "Roof style", false, "gable", "gambrel", "lean-to"),
             Choice("floorIncluded", "Floor included", false, "yes", "no"),
-        ]),
+        ], new(1m, "one shed")),
         new("flooring", "Flooring", "sqft", "room-floor",
         [
             Choice("material", "Material", true, "vinyl-plank", "laminate", "tile", "hardwood", "carpet"),
             Text("color", "Colour", true),
             Number("thicknessMm", "Thickness", "mm"),
-        ]),
+        ], new(200m, "a 200 sq ft room")),
         new("decking", "Decking", "each", "backyard",
         [
             Choice("material", "Material", true, "cedar", "pressure-treated", "composite"),
             Text("color", "Colour"),
             Number("lengthFt", "Board length", "ft"),
-        ]),
+        ], new(60m, "a 12 x 16 ft deck (about 60 boards)")),
         new("cabinets", "Cabinets", "each", "kitchen",
         [
             Choice("style", "Door style", true, "shaker", "flat-panel", "raised-panel"),
             Text("color", "Colour", true),
             Number("widthIn", "Width", "in"),
-        ]),
+        ], new(10m, "a 10-cabinet kitchen")),
         new("paint", "Paint", "each", "room-wall",
         [
             Choice("finish", "Finish", true, "flat", "eggshell", "satin", "semi-gloss", "gloss"),
             Text("color", "Colour", true),
             Number("coverageSqFt", "Coverage per gallon", "sq ft"),
-        ]),
+        ], new(2m, "one room, two coats (2 gallons)")),
         new("windows-doors", "Windows & doors", "each", "house-front",
         [
             Choice("type", "Type", true, "double-hung", "casement", "sliding", "entry-door", "patio-door"),
             Choice("frame", "Frame", false, "vinyl", "wood", "fiberglass", "aluminium"),
             Text("size", "Size"),
-        ]),
+        ], new(1m, "one opening")),
         new("fencing", "Fencing", "each", "backyard",
         [
             Choice("material", "Material", true, "cedar", "vinyl", "chain-link", "aluminium"),
             Number("heightFt", "Height", "ft"),
             Number("panelWidthFt", "Panel width", "ft"),
-        ]),
+        ], new(12m, "about 100 ft of fence (12 panels)")),
         new("labour", "Installation & labour", "hour", "none",
         [
             Choice("trade", "Trade", true, "general", "roofing", "countertops", "flooring", "painting", "carpentry"),

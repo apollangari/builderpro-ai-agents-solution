@@ -27,6 +27,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2y' | Navy & Sand theme (Option A), `ThemeService` white-label accent |
 | 2e | Dapper in every store (SQL unchanged); store tests against real Postgres (Testcontainers); roofing products in the dev seed |
 | 2f | Redis for hot reads: tenant lookup + product lists, invalidated by the data owner ([LEARN](learn/02f-redis-hot-reads.md)) |
+| 2k | Compare: pick 2-4 products of one category; side-by-side attributes; estimates at the category's typical size from `POST /api/quotes/estimates` (catalog price + QuotePricer, tax incl., nothing stored); lowest marked |
 | 2j | Product picker: category tabs with counts (only categories the store sells), attribute filters per category (only values that exist), image cards with attribute badges; pure picker functions + signals |
 | 2i | Sample images: 25 generated SVGs in `web/public/products` (stone, shingles, sheds, planks, cabinets, paint, windows, fences) from `web/scripts/generate-product-images.mjs`; shown on catalog cards; a test fails if a seeded image file is missing |
 | 2h | Product categories + attributes: 11 platform categories (Domain/Categories.cs) with typed attribute definitions and a default scene each; schema v2 (`category`, `attributes jsonb`, `image_url`); `GET /api/catalog/categories`, `?category=`; 29 seeded products validated at startup and by a test |
@@ -39,7 +40,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2k | **Compare**: pick 2-4 products of one category, side-by-side attributes, price per unit and a rough total for a typical size (computed by domain code, not the UI) | Tests |
 | 2l | **Visualizer for EVERY product type**: with no upload, show a **default scene per category** with the selected product applied (kitchen for countertops/cabinets, house roof for shingles, backyard for sheds/decking/fencing, room floor for flooring, wall for paint, house front for windows-doors). Scenes are generated SVG with named surfaces the product texture/colour fills. With an upload: customer drags 4 corners onto the surface and the texture is drawn with perspective (canvas homography); photo stays in the browser. AI auto-detection later | Every category has a default scene; tests for the homography maths and scene/category mapping; manual check |
 | 2g | **Roof estimator** (domain code): roof area + pitch + waste -> squares, bundles, rolls | Unit tests; quantities never come from an LLM |
 | 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |

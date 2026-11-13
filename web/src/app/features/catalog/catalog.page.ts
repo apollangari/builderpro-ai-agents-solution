@@ -1,5 +1,7 @@
-import { Component, computed, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { CompareSelection, MAX_COMPARE } from '../compare/compare';
 import { describeError } from '../../core/api/describe-error';
 import { Category, categoriesResource, productsResource } from './catalog.api';
 import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from './picker';
@@ -11,7 +13,7 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
  */
 @Component({
   selector: 'bp-catalog-page',
-  imports: [CurrencyPipe],
+  imports: [CurrencyPipe, RouterLink],
   template: `
     <div class="page">
       <header class="page-head head-row">
@@ -111,6 +113,18 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
                 <p class="desc">{{ p.description }}</p>
               }
               <div class="price" data-testid="price">{{ p.listPrice | currency: p.currency }}</div>
+              @if (p.category !== 'labour') {
+                <label class="compare-toggle">
+                  <input
+                    type="checkbox"
+                    [attr.data-testid]="'compare-' + p.sku"
+                    [checked]="compare.has(p.sku)"
+                    [disabled]="!compare.has(p.sku) && compare.full() && compare.category() === p.category"
+                    (change)="compare.toggle(p)"
+                  />
+                  Compare
+                </label>
+              }
             </article>
           } @empty {
             <div class="empty card" data-testid="empty">
@@ -122,6 +136,18 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
             </div>
           }
         </div>
+
+        @if (compare.count() > 0) {
+          <div class="compare-bar" role="region" aria-label="Comparison" data-testid="compare-bar">
+            <span>{{ compare.count() }} of {{ maxCompare }} selected</span>
+            <button type="button" class="btn" (click)="compare.clear()">Clear</button>
+            @if (compare.count() >= 2) {
+              <a routerLink="/compare" class="btn btn-primary" data-testid="go-compare">Compare {{ compare.count() }}</a>
+            } @else {
+              <span class="hint">Pick one more of the same kind</span>
+            }
+          </div>
+        }
       }
     </div>
   `,
@@ -166,6 +192,14 @@ import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from 
     .desc { margin: 0; color: var(--bp-ink-muted); font-size: .88rem; }
     .price { margin-top: auto; padding-top: .6rem; font-family: var(--bp-font-heading); font-size: 1.4rem; font-weight: 700; color: var(--bp-accent); }
     .empty { grid-column: 1 / -1; text-align: center; color: var(--bp-ink-muted); padding: 2.5rem; }
+    .compare-toggle { display: inline-flex; align-items: center; gap: .5rem; min-height: var(--bp-tap); font-weight: 600; font-size: .9rem; cursor: pointer; }
+    .compare-toggle input { width: 1.2rem; height: 1.2rem; accent-color: var(--bp-accent); }
+    .compare-bar {
+      position: sticky; bottom: 1rem; z-index: 5; margin-top: 1.25rem; display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+      padding: .6rem .9rem; background: var(--bp-surface); border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius-lg);
+    }
+    .compare-bar span:first-child { font-weight: 600; margin-right: auto; }
+    .compare-bar .hint { color: var(--bp-ink-muted); font-size: .85rem; }
   `,
 })
 export class CatalogPage {
@@ -173,6 +207,9 @@ export class CatalogPage {
   protected readonly categories = categoriesResource();
   protected readonly describe = describeError;
   protected readonly placeholders = [1, 2, 3, 4, 5, 6];
+
+  protected readonly compare = inject(CompareSelection);
+  protected readonly maxCompare = MAX_COMPARE;
 
   protected readonly category = signal<string | null>(null);
   protected readonly filters = signal<Filters>({});

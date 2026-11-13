@@ -8,7 +8,8 @@ public sealed record ProductDto(
     string Category, string? ImageUrl, IReadOnlyDictionary<string, string> Attributes);
 
 public sealed record AttributeDefinitionDto(string Key, string Label, string Kind, bool Required, IReadOnlyList<string>? Options, string? Unit);
-public sealed record CategoryDto(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinitionDto> Attributes);
+public sealed record TypicalSizeDto(decimal Quantity, string Description);
+public sealed record CategoryDto(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinitionDto> Attributes, TypicalSizeDto? Typical);
 
 public static class CatalogEndpoints
 {
@@ -58,7 +59,8 @@ public static class CatalogEndpoints
         new(p.Sku, p.Name, p.Description, p.Unit, p.ListPrice, p.Currency, p.Category, p.ImageUrl, p.AttributeValues);
 
     private static CategoryDto ToDto(CategoryDefinition c) => new(c.Id, c.Name, c.DefaultUnit, c.Scene,
-        [.. c.Attributes.Select(a => new AttributeDefinitionDto(a.Key, a.Label, a.Kind.ToString().ToLowerInvariant(), a.Required, a.Options, a.Unit))]);
+        [.. c.Attributes.Select(a => new AttributeDefinitionDto(a.Key, a.Label, a.Kind.ToString().ToLowerInvariant(), a.Required, a.Options, a.Unit))],
+        c.Typical is null ? null : new TypicalSizeDto(c.Typical.Quantity, c.Typical.Description));
 
     // RFC 9457 problem+json with the same stable "code" extension the Identity service uses.
     private static IResult Problem(int status, string code, string detail) =>

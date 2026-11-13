@@ -10,11 +10,11 @@ const products = [
 ];
 
 const categories = [
-  { id: 'flooring', name: 'Flooring', defaultUnit: 'sqft', scene: 'room-floor', attributes: [
+  { id: 'flooring', name: 'Flooring', defaultUnit: 'sqft', scene: 'room-floor', typical: null, attributes: [
     { key: 'material', label: 'Material', kind: 'choice', required: true, options: ['vinyl-plank', 'laminate', 'tile'], unit: null },
     { key: 'color', label: 'Colour', kind: 'text', required: true, options: null, unit: null },
   ] },
-  { id: 'paint', name: 'Paint', defaultUnit: 'each', scene: 'room-wall', attributes: [
+  { id: 'paint', name: 'Paint', defaultUnit: 'each', scene: 'room-wall', typical: null, attributes: [
     { key: 'finish', label: 'Finish', kind: 'choice', required: true, options: ['flat', 'eggshell'], unit: null },
     { key: 'color', label: 'Colour', kind: 'text', required: true, options: null, unit: null },
   ] },

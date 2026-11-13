@@ -14,6 +14,13 @@ public sealed record QuoteDto(
 public sealed record QuoteSummaryDto(Guid Id, string Status, string? CustomerId, string Currency, int LineCount, decimal Total, DateTimeOffset CreatedAt);
 public sealed record QuoteErrorDto(string Code, string Message, int? Line);
 
+// Estimates (2k): price "this product at that quantity" without storing anything.
+public sealed record EstimateItem(string Sku, decimal Quantity);
+public sealed record EstimateRequest(EstimateItem[]? Items);
+public sealed record EstimateDto(
+    string Sku, decimal Quantity, string? Unit, decimal? UnitPrice, decimal? Subtotal, decimal? TaxRate, decimal? Tax, decimal? Total,
+    string? Currency, IReadOnlyList<QuoteErrorDto> Errors);
+
 public static class QuoteEndpoints
 {
     public const string ReadScope = "quotes.read";
@@ -27,6 +34,8 @@ public static class QuoteEndpoints
         api.MapPost("/", CreateAsync).WithSummary("Price and store a draft quote. Prices come from the catalog, totals from QuotePricer.");
         api.MapGet("/", ListAsync).WithSummary("Recent quotes: a customer's own, or the whole tenant's for staff.");
         api.MapGet("/{id:guid}", GetAsync).WithSummary("One quote. Another tenant's (or customer's) quote is a plain 404.");
+        api.MapPost("/estimates", EstimatesAsync)
+            .WithSummary("Price each item on its own (catalog price + QuotePricer, tax included). Nothing is stored. For compare (2k) and agents.");
 
         return app;
     }
@@ -93,6 +102,48 @@ public static class QuoteEndpoints
         var quotes = await store.ListAsync(tenant.TenantId!, tenant.CustomerId, ListLimit, ct);
         return Results.Ok(quotes.Select(q =>
             new QuoteSummaryDto(q.Id, q.Status, q.CustomerId, q.Priced.Total.Currency, q.Priced.Lines.Count, q.Priced.Total.Amount, q.CreatedAt)));
+    }
+
+    public const int MaxEstimateItems = 6;
+
+    internal static async Task<IResult> EstimatesAsync(
+        EstimateRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog, IConfiguration config, CancellationToken ct)
+    {
+        var items = request.Items ?? [];
+        if (items.Length is 0 or > MaxEstimateItems)
+        {
+            return Problem(StatusCodes.Status400BadRequest, "invalid_estimate", $"Send 1 to {MaxEstimateItems} items.");
+        }
+
+        var tenant = await tenants.ResolveAsync(http, ct);
+        if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
+        if (!tenant.HasScope(ReadScope)) return Problem(StatusCodes.Status403Forbidden, "missing_scope", $"Estimates need the {ReadScope} scope.");
+
+        var products = await catalog.GetAsync(http, ct);
+        if (products is null) return Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced.");
+
+        var taxRate = TaxRateFor(tenant.TenantId!, config);
+        return Results.Ok(items.Select(item => Estimate(item, products, taxRate)));
+    }
+
+    /// <summary>One item, priced alone by the same rules as a quote. Problems come back per item, not as a 400.</summary>
+    private static EstimateDto Estimate(EstimateItem item, IReadOnlyDictionary<string, CatalogProduct> products, decimal taxRate)
+    {
+        static EstimateDto Fail(EstimateItem i, string code, string message) =>
+            new(i.Sku, i.Quantity, null, null, null, null, null, null, null, [new QuoteErrorDto(code, message, null)]);
+
+        if (!ClaimsNormalizer.IsIdentifier(item.Sku)) return Fail(item, "invalid_sku", "sku is not a valid identifier.");
+        if (!products.TryGetValue(item.Sku, out var p)) return Fail(item, "unknown_sku", $"{item.Sku} is not in your catalog.");
+
+        var result = QuotePricer.Price(new QuoteInput([new QuoteLineInput(p.Sku, p.Name, p.Unit, item.Quantity, new Money(p.ListPrice, p.Currency))], taxRate));
+        if (!result.Succeeded)
+        {
+            return new(item.Sku, item.Quantity, p.Unit, p.ListPrice, null, null, null, null, p.Currency,
+                [.. result.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, null))]);
+        }
+
+        var q = result.Quote!;
+        return new(item.Sku, item.Quantity, p.Unit, p.ListPrice, q.Subtotal.Amount, q.TaxRate, q.Tax.Amount, q.Total.Amount, q.Total.Currency, []);
     }
 
     /// <summary>Per-tenant tax rate from configuration (Quotes:TaxRates:{tenant}), else Quotes:DefaultTaxRate, else 0.</summary>

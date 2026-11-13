@@ -285,3 +285,65 @@ public sealed class QuoteApiTests(QuotesFactory f) : IClassFixture<QuotesFactory
         Assert.Equal(before, (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count);
     }
 }
+
+public sealed class EstimateTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    private async Task<EstimateDto[]> Estimate(string sub, params (string Sku, decimal Qty)[] items)
+    {
+        var r = await _f.As(sub).PostAsJsonAsync("/api/quotes/estimates", new { items = items.Select(i => new { sku = i.Sku, quantity = i.Qty }) });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<EstimateDto[]>())!;
+    }
+
+    [Fact]
+    public async Task Each_item_is_priced_alone_with_tenant_tax_and_nothing_is_stored()
+    {
+        var before = (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count;
+
+        var e = await Estimate("alice", ("PAINT", 2), ("LABOR", 10));
+
+        Assert.Equal(69.96m, e[0].Subtotal);       // 2 x 34.98
+        Assert.Equal(5.77m, e[0].Tax);             // 69.96 x 0.0825 = 5.7717
+        Assert.Equal(75.73m, e[0].Total);
+        Assert.Equal(650.00m, e[1].Subtotal);
+        Assert.All(e, x => Assert.Empty(x.Errors));
+        Assert.Equal(before, (await _f.Store.ListAsync("t-acme", null, 1000, default)).Count);
+    }
+
+    [Fact]
+    public async Task Bad_items_report_their_own_errors_and_good_ones_still_price()
+    {
+        var e = await Estimate("alice", ("DECK", 1), ("PAINT", 0), ("PAINT", 1));
+
+        Assert.Equal("unknown_sku", e[0].Errors.Single().Code);   // globex's product
+        Assert.Equal("invalid_quantity", e[1].Errors.Single().Code);
+        Assert.Null(e[1].Total);
+        Assert.Equal(37.87m, e[2].Total);                          // 34.98 + 2.89 tax
+    }
+
+    [Fact]
+    public async Task Estimates_use_your_own_catalog()
+    {
+        var e = await Estimate("carol", ("PAINT", 1));
+        Assert.Equal(42.00m, e[0].UnitPrice);   // globex price, not acme's
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    public async Task One_to_six_items_per_request(int count)
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/estimates",
+            new { items = Enumerable.Range(0, count).Select(_ => new { sku = "PAINT", quantity = 1 }) });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Needs_quotes_read()
+    {
+        var r = await _f.As("nora").PostAsJsonAsync("/api/quotes/estimates", new { items = new[] { new { sku = "PAINT", quantity = 1 } } });
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+    }
+}
