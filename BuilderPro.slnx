@@ -13,12 +13,14 @@
     <Project Path="src/Services/Me/BuilderPro.Me.Api/BuilderPro.Me.Api.csproj" />
     <Project Path="src/Services/Identity/BuilderPro.Identity.Api/BuilderPro.Identity.Api.csproj" />
     <Project Path="src/Services/Catalog/BuilderPro.Catalog.Api/BuilderPro.Catalog.Api.csproj" />
+    <Project Path="src/Services/Quotes/BuilderPro.Quotes.Domain/BuilderPro.Quotes.Domain.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/BuilderPro.Me.Api.Tests/BuilderPro.Me.Api.Tests.csproj" />
     <Project Path="tests/BuilderPro.Gateway.Tests/BuilderPro.Gateway.Tests.csproj" />
     <Project Path="tests/BuilderPro.Identity.Api.Tests/BuilderPro.Identity.Api.Tests.csproj" />
     <Project Path="tests/BuilderPro.Catalog.Api.Tests/BuilderPro.Catalog.Api.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Quotes.Domain.Tests/BuilderPro.Quotes.Domain.Tests.csproj" />
     <Project Path="tests/BuilderPro.Security.Tests/BuilderPro.Security.Tests.csproj" />
   </Folder>
 </Solution>

@@ -22,12 +22,12 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2x | WhoAmI page on `httpResource` (signal-first Angular) |
 | 2y | Design system (tokens, light/dark) and refreshed shell, home and WhoAmI pages |
 | 2b | Catalog page: tenant products on `httpResource`, live search, fail-closed errors |
+| 2c | Pricing as pure domain code: `Money`, one rounding rule, `QuotePricer` ([LEARN](learn/02c-pricing-domain.md)) |
 
 ## Next
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2c | **Pricing as pure domain code**: `Quote` from product lines + quantities, money as decimal with currency, rounding rules in one place | Unit tests for totals, rounding and invalid input; no HTTP yet |
 | 2d | **Quote API**: `POST /api/quotes` (validate, price, persist) | Integration tests; same request → same price |
 | 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |

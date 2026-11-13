@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Quote pricing as PURE domain code: no HTTP, no database, no clock, no NuGet packages.
+    Same input -> same output, always. The Quote API (2d) and, later, the agents' tools call
+    this; nothing else is allowed to compute a price.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuilderPro.Quotes.Domain.Tests" />
+  </ItemGroup>
+</Project>

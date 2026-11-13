@@ -37,6 +37,7 @@ src/Gateway/                    YARP gateway: the only door for /api/*
 src/Services/Me/                tiny API: /api/auth-config (public), /api/me (needs a token)
 src/Services/Identity/          tenant memberships (own Postgres database: identitydb)
 src/Services/Catalog/           products per tenant (own Postgres database: catalogdb)
+src/Services/Quotes/            quote pricing: pure domain library (API in 2d)
 infra/keycloak/                 local identity provider realm (dev only)
 tests/                          xUnit tests per service
 web/                            Angular 22 app (standalone, signals, zoneless)
@@ -53,6 +54,7 @@ docs/                           setup, branching, learning guides, ADRs
 | 1d | Identity service + claims normalisation + memberships | ✅ | [docs/learn/01d-identity-memberships.md](docs/learn/01d-identity-memberships.md) |
 | 2a | Catalog service: products per tenant, tenant resolved by Identity | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md) |
 | 2b | Catalog page in Angular (`/catalog`, signal-first) | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md#3-try-it) |
+| 2c | Pricing as pure domain code (Money, rounding, QuotePricer) | ✅ | [docs/learn/02c-pricing-domain.md](docs/learn/02c-pricing-domain.md) |
 
 ## How we work
 
