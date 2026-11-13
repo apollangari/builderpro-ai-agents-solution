@@ -11,6 +11,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable |
 |---|---|
+| 6a | Deposit holds the price: Accept no longer holds it; the customer pays a 5 % deposit (DepositPolicy on the stored total, per-store percent) through a test-mode payment page; paid = price held, project to the measure visit, answers locked; customer only (staff and agents refused) ([LEARN](learn/06a-deposit.md)) |
 | 1h | Packages per store: `guided` (always), `help-chat` (answers only), `concierge` (acts on the project), `phone-scheduling` (4b); set per store in Identity, carried by the tenant lookup, enforced in the Assistant (403 `feature_not_included`, help-only tool set), hidden in the web (Home, catalog chat, project chat); Acme full, Globex guided + help ([LEARN](learn/01h-store-packages.md)) |
 | 1a | Walking skeleton: Aspire + Angular → API |
 | 1b | Keycloak login, API validates the token |
@@ -56,7 +57,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 1i | **Salesperson login (assisted selling)**: a store role `sales` (staff, scopes to create projects on behalf of customers). The salesperson finds the customer of their store (name, email or phone) or invites a new one (sign-up link by email/text), then runs the same flow for them: ZIP, product, measurements, options, protection, numbered quote. The project belongs to the customer and shows in their My projects; it records "prepared by <salesperson>" and credits the sale to them for commission (report per salesperson). The customer accepts and pays the 5 % deposit themselves through the same flow (link sent by email/text, or on their own device in store) | A salesperson sees only their store's customers; every project/quote they touch records who did it; Accept and payment stay customer-only (a salesperson can't press them for the customer) |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
-| 6a | **Deposit holds the price**: after Accept, the customer pays a **5 % advance** (payment provider in test mode; amount from the pricing engine); only a paid deposit holds the price until the quote's validity date; receipt | Without a paid deposit the price is not held; only the customer can pay; an agent can't |
 | 6b | **Measure visit**: pick a slot from store availability within the customer's contact hours; measured values replace the estimate and re-price the quote for the customer to confirm | A changed price always needs the customer's confirmation |
 | 6c | **Install tracking**: stages scheduled -> fabricating -> installing -> done, with notifications on the customer's chosen channels (consent from 1f-b) | No message is sent on a channel the customer didn't consent to |
 | 4b | **AI phone scheduling (store option)**: after the deposit (6a), the scheduling agent (4a) calls the customer only if they opted in to automated calls, only within their contact hours (their time zone), says it's an automated assistant, offers 2-3 measure-visit slots and a person; the customer confirms the slot from a text/email link (the agent never books on its own); opt-out on every call, recorded; telephony via Azure Communication Services (or Twilio) | No call without automated-call consent or outside the customer's hours; a slot is booked only by the customer's confirmation; opt-outs stop all calls immediately |
@@ -92,9 +92,7 @@ as "not yet" in the LEARN docs.
 
 - **Price hold needs a deposit (2026-11-13, owner).** A quote's price is held only once the customer
   pays an advance of **5 %** of the quote total. Accepting alone no longer holds the price: until the
-  deposit is paid, the quote is re-priced like any open quote and can go outdated. Today's code still
-  holds the price on Accept; 6a changes that (Accept -> pay 5 % deposit -> price held until the
-  validity date). The deposit amount comes from the pricing engine, never the browser or an agent.
+  deposit is paid, the quote is re-priced like any open quote and can go outdated. Built in 6a (Accept -> pay 5 % deposit -> price held). The deposit amount comes from the pricing engine, never the browser or an agent.
 
 - **1e onboarding (2026-11-13): a sign-up link per store.** `/signup?store=acme` sends the visitor to Create account
   (or Continue with Google) and, on first sign-in, the Identity service creates a **customer** membership for that

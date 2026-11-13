@@ -177,7 +177,7 @@ export function problemMessages(err: unknown): string[] {
 }
 
 // ---- 2n-f: projects (GET/PUT /api/projects/...) ----
-export type ProjectStage = 'discover' | 'configure' | 'quote' | 'deposit' | 'measure' | 'install';
+export type ProjectStage = 'discover' | 'configure' | 'quote' | 'deposit' | 'measure' | 'confirm' | 'install' | 'done';
 
 export interface IssuedQuote {
   id: string;
@@ -193,6 +193,22 @@ export interface IssuedQuote {
   taxRate: number;
   tax: number;
   total: number;
+  /** 6a: a paid deposit holds this quote's price. */
+  held?: boolean;
+}
+
+/** The 5 % deposit (6a). Mirrors DepositDto in C#. */
+export interface DepositInfo {
+  id: string;
+  projectId: string;
+  quoteNumber: number;
+  quoteTotal: number;
+  amount: number;
+  currency: string;
+  percent: number;
+  status: 'pending' | 'paid';
+  paidAt: string | null;
+  checkoutUrl: string;
 }
 
 export interface ProjectAnswers {
@@ -211,6 +227,7 @@ export interface Project {
   previewErrors: { code: string; message: string }[];
   quote: IssuedQuote | null;
   updatedAt: string;
+  deposit?: DepositInfo | null;
 }
 
 export interface ProjectSummary {

@@ -300,6 +300,32 @@ public sealed class ProjectAndIssuedQuoteStoreTests(PostgresFixture pg)
 }
 
 [Collection(PostgresCollection.Name)]
+public sealed class DepositStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task A_deposit_is_paid_once_and_stays_in_its_tenant()
+    {
+        var store = new PostgresDepositStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);
+        var quoteId = Guid.NewGuid();
+        var d = new Deposit(Guid.NewGuid(), "t-acme", Guid.NewGuid(), quoteId, "c-alice", 362.29m, "USD", 5m, DepositStatus.Pending, "simulated", T0, null);
+        await store.CreateAsync(d, default);
+
+        Assert.Null(await store.FindAsync("t-globex", null, d.Id, default));
+        Assert.Null(await store.FindAsync("t-acme", "c-abe", d.Id, default));
+        Assert.False(await store.MarkPaidAsync("t-globex", d.Id, T0, "u-1", default));
+        Assert.True(await store.MarkPaidAsync("t-acme", d.Id, T0.AddMinutes(5), "u-1", default));
+        Assert.False(await store.MarkPaidAsync("t-acme", d.Id, T0.AddMinutes(6), "u-1", default));   // only once
+
+        var found = (await store.ForQuoteAsync("t-acme", quoteId, default))!;
+        Assert.Equal(("paid", 362.29m, T0.AddMinutes(5)), (found.Status, found.Amount, found.PaidAt));
+    }
+}
+
+[Collection(PostgresCollection.Name)]
 public sealed class ConsentStoreTests(PostgresFixture pg)
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);

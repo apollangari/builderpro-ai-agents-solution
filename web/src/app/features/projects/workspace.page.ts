@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, input, linkedSignal, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { describeError } from '../../core/api/describe-error';
 import { GuidedStepsComponent } from '../quote/guided-steps.component';
 import { GROUP_TITLES, GuidedLine, Project, STAGES, layoutSketch } from '../quote/guided';
@@ -31,7 +31,7 @@ import { StoreFeatures } from '../../core/tenant/store-features';
           <a routerLink="/projects" class="btn">My projects</a>
         </header>
 
-        <bp-progress-tracker [steps]="journey()" [current]="locked() ? 'deposit' : currentGroup()" (selected)="goTo($event)" />
+        <bp-progress-tracker [steps]="journey()" [current]="trackerCurrent()" (selected)="goTo($event)" />
 
         <div class="layout" [class.no-chat]="!features.anyChat()">
           @if (features.anyChat()) {
@@ -97,8 +97,15 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                   <dt>Tax</dt><dd>{{ q.tax | currency: q.currency }}</dd>
                   <dt class="total">Total</dt><dd class="total" data-testid="quote-total">{{ q.total | currency: q.currency }}</dd>
                 </dl>
-                @if (q.status === 'accepted') {
-                  <p class="ok" data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. The price is held; the deposit is the next step.</p>
+                @if (q.held) {
+                  <p class="ok" data-testid="held">Deposit of {{ p.deposit!.amount | currency: p.deposit!.currency }} paid on {{ p.deposit!.paidAt | date: 'mediumDate' }}. Your price is held; next is the measure visit.</p>
+                } @else if (q.status === 'accepted' && q.current && !q.expired) {
+                  <p data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. Pay a {{ depositPercent() }}% deposit to hold this price; until then it can change.</p>
+                  <div class="actions">
+                    <button type="button" class="btn btn-primary" (click)="payDeposit()" [disabled]="busy()" data-testid="pay-deposit">
+                      Pay {{ depositPercent() }}% deposit@if (p.deposit) { ({{ p.deposit.amount | currency: p.deposit.currency }}) }
+                    </button>
+                  </div>
                 } @else if (q.expired) {
                   <p class="warning"><span>This quote expired.</span></p>
                   <button type="button" class="btn btn-primary" (click)="issue()" [disabled]="busy()">Get an updated quote</button>
@@ -190,6 +197,7 @@ export class WorkspacePage {
   protected readonly stages = STAGES;
   protected readonly titles = GROUP_TITLES;
 
+  private readonly router = inject(Router);
   protected readonly loaded = httpResource<Project>(() => `/api/projects/${encodeURIComponent(this.id())}`);
   /** The project as last seen from the server: the GET, then every save / quote / accept answer. */
   protected readonly project = linkedSignal<Project | null>(() => (this.loaded.hasValue() ? this.loaded.value()! : null));
@@ -214,7 +222,7 @@ export class WorkspacePage {
   /** Changes screen only when the stage changes (a concierge save in the same stage keeps you where you are). */
   protected readonly page = linkedSignal<string | null, string>({
     source: this.stage,
-    computation: (stage) => (stage === 'quote' || stage === 'deposit' ? 'quote' : 'measure'),
+    computation: (stage) => (stage && !['discover', 'configure'].includes(stage) ? 'quote' : 'measure'),
   });
   /** The whole journey in one tracker: done before the project, this project's screens, then what follows the quote. */
   protected readonly journey = computed<TrackerStep[]>(() => [
@@ -241,7 +249,17 @@ export class WorkspacePage {
   }
   protected readonly pageIndex = computed(() => this.pages().findIndex((p) => p.id === this.page()));
   /** Accepted: answers can't change, only the quote is shown. */
-  protected readonly locked = computed(() => this.project()?.stage === 'deposit');
+  /** Paid deposit onwards: the answers are the order (6a). */
+  protected readonly locked = computed(() => ['measure', 'confirm', 'install', 'done'].includes(this.project()?.stage ?? ''));
+  /** Where the tracker is: the screen while configuring, then the stage after the quote. */
+  protected readonly trackerCurrent = computed(() => {
+    const stage = this.project()?.stage;
+    if (stage === 'deposit') return 'deposit';
+    if (stage === 'measure' || stage === 'confirm') return 'measure-visit';
+    if (stage === 'install' || stage === 'done') return 'install';
+    return this.currentGroup();
+  });
+  protected readonly depositPercent = computed(() => this.project()?.deposit?.percent ?? 5);
   protected readonly missingSteps = computed(() => {
     const missing = this.project()?.preview?.missing ?? [];
     return missing.length ? missing.join(', ') : 'the measurements';
@@ -255,7 +273,7 @@ export class WorkspacePage {
   protected readonly askText = signal<string | null>(null);
 
   /** Quote and accept are POSTs fired by the customer's buttons. */
-  private readonly action = signal<{ kind: 'quote' | 'accept'; n: number } | null>(null);
+  private readonly action = signal<{ kind: 'quote' | 'accept' | 'deposit'; n: number } | null>(null);
   private readonly actionResult = httpResource<Project>(() => {
     const a = this.action();
     const p = this.project();
@@ -268,16 +286,25 @@ export class WorkspacePage {
 
   constructor() {
     effect(() => {
-      if (this.actionResult.hasValue()) {
-        this.project.set(this.actionResult.value()!);
-        this.action.set(null);
+      if (!this.actionResult.hasValue()) return;
+      const result = this.actionResult.value() as unknown as Project & { checkoutUrl?: string };
+      if (this.action()?.kind === 'deposit' && result.checkoutUrl) {
+        void this.router.navigateByUrl(result.checkoutUrl);
+      } else {
+        this.project.set(result);
       }
+      this.action.set(null);
     });
   }
 
   protected issue(): void {
     this.action.set({ kind: 'quote', n: ++this.n });
     this.page.set('quote');
+  }
+
+  /** Start (or resume) the 5 % deposit, then the payment page. */
+  protected payDeposit(): void {
+    this.action.set({ kind: 'deposit', n: ++this.n });
   }
 
   protected accept(): void {

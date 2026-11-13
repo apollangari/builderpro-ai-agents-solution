@@ -25,8 +25,15 @@ public static class ProjectStages
     public const string Discover = "discover";     // ZIP known, no product yet
     public const string Configure = "configure";   // product chosen; measuring and answering
     public const string Quote = "quote";           // a numbered quote was issued
-    public const string Deposit = "deposit";       // the customer accepted it; deposit next (6a)
-    public static readonly IReadOnlyList<string> All = [Discover, Configure, Quote, Deposit, "measure", "install"];
+    public const string Deposit = "deposit";       // the customer accepted it; the 5 % deposit is due (6a)
+    public const string Measure = "measure";       // deposit paid: price held, measure visit next (6b)
+    public const string Confirm = "confirm";       // measured: the customer confirms the measured quote (6b)
+    public const string Install = "install";       // installation in progress (6c)
+    public const string Done = "done";             // installed (6c)
+    public static readonly IReadOnlyList<string> All = [Discover, Configure, Quote, Deposit, Measure, Confirm, Install, Done];
+
+    /// <summary>Once the deposit is paid the answers are the order: only the measure visit changes them (6b).</summary>
+    public static bool IsLocked(string stage) => stage is Measure or Confirm or Install or Done;
 }
 
 public interface IProjectStore

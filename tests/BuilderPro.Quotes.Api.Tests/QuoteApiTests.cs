@@ -107,6 +107,7 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
     public InMemoryQuoteStore Store { get; } = new();
     public InMemoryProjectStore Projects { get; } = new();
+    public InMemoryDepositStore Deposits { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCatalog Catalog { get; }
     public FakeTimeProvider Clock { get; } = new(Now);
@@ -124,6 +125,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IQuoteStore>(Store);
             s.RemoveAll<IProjectStore>();
             s.AddSingleton<IProjectStore>(Projects);
+            s.RemoveAll<IDepositStore>();
+            s.AddSingleton<IDepositStore>(Deposits);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
             s.RemoveAll<ICatalogPrices>();
@@ -662,7 +665,7 @@ public sealed class ProjectApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
     }
 
     [Fact]
-    public async Task The_customer_accepts_and_the_project_moves_to_deposit_and_locks()
+    public async Task Accepting_alone_does_not_hold_the_price_the_deposit_is_due()
     {
         var p = await NewProject();
         await Put(p.Id, CompleteAnswers);
@@ -671,11 +674,12 @@ public sealed class ProjectApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
         var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         var accepted = (await r.Content.ReadFromJsonAsync<ProjectDto>())!;
-        Assert.Equal(("deposit", "accepted"), (accepted.Stage, accepted.Quote!.Status));
+        Assert.Equal(("deposit", "accepted", false), (accepted.Stage, accepted.Quote!.Status, accepted.Quote.Held));
         Assert.Equal(QuotesFactory.Now, accepted.Quote.AcceptedAt);
 
-        var locked = await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
-        Assert.Equal(HttpStatusCode.Conflict, locked.StatusCode);
+        // Not held yet: the customer may still change answers, which needs an updated quote.
+        var changed = await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
     }
 
     [Fact]
@@ -766,4 +770,96 @@ public sealed class ProjectApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
     [InlineData("nope", HttpStatusCode.BadRequest)]
     public async Task A_project_needs_a_served_zip(string zip, HttpStatusCode status) =>
         Assert.Equal(status, (await _f.As("alice").PostAsJsonAsync("/api/projects", new { zip })).StatusCode);
+}
+
+/// <summary>6a: the 5 % deposit holds the price; only the customer pays.</summary>
+public sealed class DepositApiTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    private static readonly object CompleteAnswers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-OGEE" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<ProjectDto> Accepted(QuotesFactory f, string sub = "alice")
+    {
+        var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+        return (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null)).Content.ReadFromJsonAsync<ProjectDto>())!;
+    }
+
+    [Fact]
+    public async Task Paying_five_percent_holds_the_price_moves_to_the_measure_visit_and_locks_the_answers()
+    {
+        var p = await Accepted(_f);
+        var start = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Equal(HttpStatusCode.Created, start.StatusCode);
+        var deposit = (await start.Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal(Math.Round(p.Quote!.Total * 0.05m, 2, MidpointRounding.AwayFromZero), deposit.Amount);
+        Assert.Equal(("pending", 5m, $"/pay/{deposit.Id}"), (deposit.Status, deposit.Percent, deposit.CheckoutUrl));
+
+        var again = (await (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal(deposit.Id, again.Id);   // one pending deposit per quote
+
+        var paid = await _f.As("alice").PostAsync($"/api/deposits/{deposit.Id}/pay", null);
+        Assert.Equal(HttpStatusCode.OK, paid.StatusCode);
+
+        var after = (await _f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+        Assert.Equal(("measure", true, "paid"), (after.Stage, after.Quote!.Held, after.Deposit!.Status));
+        Assert.Equal(QuotesFactory.Now, after.Deposit.PaidAt);
+        Assert.Equal(HttpStatusCode.Conflict, (await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Only_the_customer_pays_never_staff_or_an_agent()
+    {
+        var p = await Accepted(_f);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("bob").PostAsync($"/api/projects/{p.Id}/deposit", null)).StatusCode);   // staff, read-only
+        var agent = _f.As("alice");
+        agent.DefaultRequestHeaders.Add(AgentCall.Header, "concierge");
+        var r = await agent.PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Contains("agent_cannot_pay", await r.Content.ReadAsStringAsync());
+
+        var deposit = (await (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync($"/api/deposits/{deposit.Id}/pay", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("abe").PostAsync($"/api/deposits/{deposit.Id}/pay", null)).StatusCode);   // another customer
+    }
+
+    [Fact]
+    public async Task No_deposit_before_accepting_and_no_payment_after_the_quote_expired()
+    {
+        using var f = new QuotesFactory();
+        var p = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        var early = await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Contains("not_accepted", await early.Content.ReadAsStringAsync());
+
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
+        var deposit = (await (await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        f.Clock.Advance(TimeSpan.FromDays(15));
+        var late = await f.As("alice").PostAsync($"/api/deposits/{deposit.Id}/pay", null);
+        Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
+        Assert.Contains("quote_expired", await late.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Changing_answers_after_accepting_needs_an_updated_quote_before_any_deposit()
+    {
+        var p = await Accepted(_f);
+        await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", new
+        {
+            sku = "CT-QTZ",
+            measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+            choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+        });
+        var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);   // back at the quote step: get and accept an updated quote first
+    }
 }

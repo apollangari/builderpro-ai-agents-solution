@@ -10,11 +10,13 @@ public sealed record ProjectAnswersRequest(string? Sku, MeasurementInput? Measur
 
 public sealed record IssuedQuoteDto(
     Guid Id, int Number, string Status, DateTimeOffset ValidUntil, DateTimeOffset? AcceptedAt, bool Current, bool Expired,
-    string Currency, IReadOnlyList<QuoteLineDto> Lines, decimal Subtotal, decimal TaxRate, decimal Tax, decimal Total);
+    string Currency, IReadOnlyList<QuoteLineDto> Lines, decimal Subtotal, decimal TaxRate, decimal Tax, decimal Total,
+    bool Held = false);   // 6a: a paid deposit holds this quote's price
 
 public sealed record ProjectDto(
     Guid Id, string Title, string Zip, string Stage, string? Sku, JsonElement Answers,
-    GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt);
+    GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt,
+    DepositDto? Deposit = null);
 
 public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt);
 
@@ -37,7 +39,8 @@ public static class ProjectEndpoints
         api.MapGet("/{id:guid}", GetAsync).WithSummary("A project with its answers re-priced now, and its latest issued quote.");
         api.MapPut("/{id:guid}/answers", AnswersAsync).WithSummary("Save the product, measurements and option answers (the workspace and the concierge both use this).");
         api.MapPost("/{id:guid}/quote", IssueAsync).WithSummary("Issue a numbered quote from the current answers (all required steps answered).");
-        api.MapPost("/{id:guid}/accept", AcceptAsync).WithSummary("The customer accepts the issued quote: the price is held until it expires. Never an agent.");
+        api.MapPost("/{id:guid}/accept", AcceptAsync).WithSummary("The customer accepts the issued quote; the 5 % deposit is then due. Accepting alone doesn't hold the price (6a). Never an agent.");
+        api.MapPost("/{id:guid}/deposit", DepositEndpoints.StartAsync).WithSummary("Start the 5 % deposit for the accepted quote: returns the amount and where to pay. Customer only, never an agent.");
         return app;
     }
 
@@ -91,8 +94,8 @@ public static class ProjectEndpoints
     {
         var (tenant, project, problem) = await LoadAsync(id, http, tenants, projects, QuoteEndpoints.WriteScope, ct);
         if (problem is not null) return problem;
-        if (project!.Stage == ProjectStages.Deposit)
-            return Problem(StatusCodes.Status409Conflict, "project_locked", "This quote was accepted; its answers can't change any more.");
+        if (ProjectStages.IsLocked(project!.Stage))
+            return Problem(StatusCodes.Status409Conflict, "project_locked", "Your deposit is paid; the measure visit confirms the details from here.");
         if (request.Sku is not null && !ClaimsNormalizer.IsIdentifier(request.Sku))
             return Problem(StatusCodes.Status400BadRequest, "invalid_sku", "sku is not a valid identifier.");
 
@@ -103,7 +106,8 @@ public static class ProjectEndpoints
             Zip = string.IsNullOrWhiteSpace(request.Zip) ? project.Zip : request.Zip.Trim(),
             Sku = request.Sku,
             AnswersJson = answers,
-            Stage = project.Stage == ProjectStages.Quote ? ProjectStages.Quote : request.Sku is null ? ProjectStages.Discover : ProjectStages.Configure,
+            // Changing answers after Accept (deposit not paid yet) needs an updated quote: back to the quote step.
+            Stage = project.Stage is ProjectStages.Quote or ProjectStages.Deposit ? ProjectStages.Quote : request.Sku is null ? ProjectStages.Discover : ProjectStages.Configure,
             UpdatedAt = clock.GetUtcNow(),
         };
         await projects.UpdateAsync(updated, ct);
@@ -116,8 +120,8 @@ public static class ProjectEndpoints
     {
         var (tenant, project, problem) = await LoadAsync(id, http, tenants, projects, QuoteEndpoints.WriteScope, ct);
         if (problem is not null) return problem;
-        if (project!.Stage == ProjectStages.Deposit)
-            return Problem(StatusCodes.Status409Conflict, "project_locked", "This quote was already accepted.");
+        if (ProjectStages.IsLocked(project!.Stage))
+            return Problem(StatusCodes.Status409Conflict, "project_locked", "Your deposit is paid; this quote is the order.");
         if (project.Sku is null) return Problem(StatusCodes.Status400BadRequest, "incomplete_quote", "Choose a product first.");
 
         var request = RequestOf(project);
@@ -237,18 +241,22 @@ public static class ProjectEndpoints
         }
 
         IssuedQuoteDto? issued = null;
+        Deposit? deposit = null;
         if (quote?.Issue is { } issue)
         {
+            deposit = await http.RequestServices.GetRequiredService<IDepositStore>().ForQuoteAsync(p.TenantId, quote.Id, ct);
             var dto = QuoteEndpoints.ToDto(quote);
             var clockNow = (clock ?? TimeProvider.System).GetUtcNow();
             issued = new IssuedQuoteDto(quote.Id, issue.Number, quote.Status, issue.ValidUntil, issue.AcceptedAt,
-                Current: quote.Status == "accepted" || (now is not null && SameQuote(quote.Priced, now)),
+                // Held by a paid deposit: this is the order. Otherwise it's current only if today's pricing agrees (6a).
+                Current: deposit?.Paid == true || (now is not null && SameQuote(quote.Priced, now)),
                 Expired: quote.Status == "issued" && issue.ValidUntil <= clockNow,
-                dto.Currency, dto.Lines, dto.Subtotal, dto.TaxRate, dto.Tax, dto.Total);
+                dto.Currency, dto.Lines, dto.Subtotal, dto.TaxRate, dto.Tax, dto.Total, Held: deposit?.Paid == true);
         }
 
         using var answers = JsonDocument.Parse(p.AnswersJson);
-        return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt);
+        return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt,
+            deposit is null ? null : DepositEndpoints.ToDto(deposit, http));
     }
 
     private static IResult Problem(int status, string code, string detail) =>

@@ -147,3 +147,22 @@ public sealed class GuidedQuoteBuilderTests
     public void A_single_step_takes_one_answer() =>
         Assert.Contains(Build(Sqft(42m, 18m), new("edge", "EDGE-EASED"), new("edge", "EDGE-OGEE")).Errors, e => e.Code == "too_many_choices");
 }
+
+public sealed class DepositPolicyTests
+{
+    [Theory]
+    [InlineData(7245.71, 5, 362.29)]   // 362.2855 -> 362.29 (half away from zero)
+    [InlineData(2829.66, 5, 141.48)]   // 141.483
+    [InlineData(100.00, 5, 5.00)]
+    [InlineData(0.10, 5, 0.01)]        // never below a cent
+    [InlineData(1000.00, 10, 100.00)]  // a store may set another percent
+    public void Five_percent_of_the_total_rounded_to_cents(decimal total, decimal percent, decimal expected) =>
+        Assert.Equal(new Money(expected, "USD"), DepositPolicy.AmountFor(new Money(total, "USD"), percent));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(101)]
+    public void Impossible_percents_are_refused(decimal percent) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => DepositPolicy.AmountFor(new Money(100m, "USD"), percent));
+}

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { WorkspacePage } from './workspace.page';
 import { Project } from '../quote/guided';
 import { signal } from '@angular/core';
@@ -84,7 +84,7 @@ describe('WorkspacePage (2n-f)', () => {
     expect(el.querySelector('[data-testid="accept-quote"]')).not.toBeNull();
   });
 
-  it('the customer accepts; the rail moves to Deposit', async () => {
+  it('after Accept the price is not held until the 5% deposit is paid; Pay opens the payment page', async () => {
     const el = await open(project({ stage: 'quote', quote: issued }));
     el.querySelector<HTMLButtonElement>('[data-testid="accept-quote"]')!.click();
     await settle();
@@ -92,9 +92,26 @@ describe('WorkspacePage (2n-f)', () => {
       .flush(project({ stage: 'deposit', quote: { ...issued, status: 'accepted', acceptedAt: '2026-11-13T10:00:00Z' } }));
     await settle();
 
-    expect(el.querySelector('[data-testid="accepted"]')?.textContent).toContain('deposit is the next step');
+    expect(el.querySelector('[data-testid="accepted"]')?.textContent).toContain('Pay a 5% deposit to hold this price');
     expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Deposit');
     expect(el.querySelector('[data-testid="accept-quote"]')).toBeNull();
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    el.querySelector<HTMLButtonElement>('[data-testid="pay-deposit"]')!.click();
+    await settle();
+    http.expectOne((r) => r.url === '/api/projects/p1/deposit' && r.method === 'POST')
+      .flush({ id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'pending', paidAt: null, checkoutUrl: '/pay/d1' });
+    await settle();
+    expect(navigate).toHaveBeenCalledWith('/pay/d1');
+  });
+
+  it('a paid deposit shows the held price and the measure visit next', async () => {
+    const el = await open(project({
+      stage: 'measure', quote: { ...issued, status: 'accepted', held: true },
+      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'paid', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
+    }));
+    expect(el.querySelector('[data-testid="held"]')?.textContent).toContain('$302.42');
+    expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Visit');
   });
 
   it('an outdated quote offers a new one instead of Accept', async () => {
