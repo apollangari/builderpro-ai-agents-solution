@@ -45,11 +45,11 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2n-a | **Guided quote: confirm ZIP, then category.** `/quote/new` asks "Is this project at ZIP 75201?" using the ZIP from the customer's sign-up address; "No" asks for the project's ZIP. Stores keep service areas (ZIP codes, grouped into zones) server-side only; a product can be limited to zones. Then category; the picker shows only products sold in that ZIP and category | Service-area ZIP lists are never sent to the browser; an unserved ZIP gets "we don't serve that area yet"; a product outside the ZIP's zone never appears or prices |
-| 2n-b | **Measurements per category**: countertops as pieces (length x depth, plus backsplash) giving sq ft and finished-edge length; roofs (existing calculator); flooring/decking rooms; fencing run; "each" for sheds, windows, doors. Server-side estimators, quantities only | The wizard never computes a quantity in the browser; each estimator has domain tests |
-| 2n-c | **Add-ons / options per category**: option groups the store configures, e.g. countertop edge profile (per linear ft of finished edge), faucet holes (each), sink (pick a sink product), cooktop cutout. Required/optional, single/multi, priced from the catalog with quantities from the measurements | Options and their quantities come from the server; invalid combinations are rejected by the API |
-| 2n-d | **Protection plans**: per-category plans (e.g. None / 5-year / 10-year), priced flat or as a % of the product + add-ons subtotal, chosen after options | Plan price comes from the pricer; "None" is an explicit choice |
-| 2n-e | **Quote review + save**: grouped quote (product, add-ons, protection, tax, total), saved as a draft with the ZIP, measurements and choices; My quotes shows it | The saved quote is reproducible from its stored inputs; totals match the preview |
+| 2n-a | **Guided quote: confirm ZIP, then category + product.** `/quote/new` asks "Is this project at ZIP 75201?" using the ZIP from the sign-up address; "No" asks for the project's ZIP. Stores keep service areas server-side as **price zones** (sets of ZIP codes); each product has a price per zone and is only sold in zones that have a price. Then category, then the picker (filters, price per unit **for that zone**, all-in "material + fabrication + install" when the store says so, sale price shown against the regular price) | ZIP lists are never sent to the browser; an unserved ZIP gets "we don't serve that area yet"; the same product can show different prices in two ZIPs; a product with no price in the zone never appears or prices |
+| 2n-b | **Measurements per category** (one form per category, server-side estimators, quantities only). Countertops: room, existing top to remove (none / stone-tile / laminate-solid surface), "are cabinets part of the project", countertop sections (width x depth, standard depth 25"), island/peninsula sections, optional backsplash (width x height), layout (L, L + island, U, U + island) -> sq ft per area, total, finished-edge length. Store **minimum charge** (e.g. 25 sq ft) applied by the pricer. Roofs: existing calculator. Flooring/decking: rooms. Fencing: run + height. Sheds/windows/doors: count or size | The browser never computes a quantity; each estimator has domain tests; the minimum shows as its own line |
+| 2n-c | **Add-ons / options per category**, as ordered steps the store configures, each priced from that zone's prices: countertop edge style (picture, price per linear inch/ft of finished edge), sink (new sink from a list with quantities / bring your own / no sink), cutouts (faucet holes: N included then each; cooktop: 1 included then each), removal of the old top, plumbing disconnect/reconnect. Required/optional, single/multi, "included" quantities | Options, included quantities and their prices come from the server; invalid combinations are rejected by the API |
+| 2n-d | **Protection plans**: shown only when the chosen product's material is covered; tiers like "5-year" / "10-year" with a flat price per zone (or % of product + add-ons), plus coverage text; "No plan" is an explicit, required choice | Plan price comes from the pricer; a plan never appears for a product it doesn't cover |
+| 2n-e | **Quote review + save**: no contact form (the customer is signed in; address, phone and consent come from the profile). Grouped quote: product, measurements summary, add-ons, minimum-charge adjustment, protection, tax, total; saved as a draft with the ZIP, measurements and choices; My quotes shows it | The saved quote is reproducible from its stored inputs; totals match the preview |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
@@ -75,9 +75,13 @@ not a contract: anything past the next two or three rows will be re-cut as we le
   - The ZIP starts as the one from the sign-up address; the customer confirms it or enters the project's
     ZIP. It is checked against the store's service areas (never shown) and does not pick a store (a
     customer is still signed up through one store's link). A new ZIP is kept on the quote, not the profile.
-  - Prices are the same in every ZIP of a store for now; zones only control availability. Tax stays per store.
+  - Prices vary by ZIP: a store groups its ZIPs into price zones and prices each product, add-on and plan
+    per zone (owner, 2026-11-13). Tax stays per store for now.
   - Add-ons and protection plans are catalog items the store maintains, never hard-coded prices.
   - The existing quote builder (2m) stays for staff until 2n-e replaces it for customers.
+  - Every project type uses the same wizard (ZIP -> product -> measurements -> options -> protection ->
+    quote); each category supplies its measurement form and option steps as data. Countertops come first,
+    modelled on a large home-improvement retailer's public countertop wizard (flow only, no content copied).
 
 ## Open questions
 
