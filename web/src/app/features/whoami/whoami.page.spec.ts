@@ -83,6 +83,21 @@ describe('WhoAmIPage', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[data-testid="me"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="platform-error"]')?.textContent).toContain('not a member of any tenant');
+    expect(el.querySelector('[data-testid="verdict"]')?.textContent).toContain('No access');
+  });
+
+  it.each([
+    ['t-acme', 't-acme', 'In agreement'],
+    ['t-globex', 't-acme', 'Platform wins'],
+    [null, 't-acme', 'Resolved'],
+  ])('compares token tenant %s with platform tenant %s: %s', async (claim, granted, label) => {
+    const fixture = await render();
+    http.expectOne('/api/me').flush({ ...tokenView, tenantId: claim });
+    http.expectOne('/api/identity/me').flush({ ...platformView, tenantId: granted });
+    await fixture.whenStable();
+
+    const verdict = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="verdict"]');
+    expect(verdict?.textContent).toContain(label);
   });
 });
 
