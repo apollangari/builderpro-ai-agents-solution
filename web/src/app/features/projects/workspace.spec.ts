@@ -48,16 +48,16 @@ describe('WorkspacePage (2n-f)', () => {
   it('shows the stage rail, the estimated layout and gets the numbered quote', async () => {
     const el = await open(project());
 
-    const rail = [...el.querySelectorAll('[data-testid="stage-rail"] li')];
-    expect(rail.map((li) => li.textContent?.trim())).toEqual(['✓ Discover', 'Configure', 'Quote', 'Deposit', 'Measure visit', 'Install']);
+    const track = [...el.querySelectorAll('[data-testid="tracker"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(track).toEqual(['✓ZIP', '✓Project type', '✓Product', 'Measure', 'Quote', 'Deposit', 'Measure visit', 'Install']);
+    expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Measure');
     expect(el.querySelector('[data-testid="layout-card"]')?.textContent).toContain('Estimated');
     expect(el.querySelectorAll('[data-testid="layout-card"] rect').length).toBe(3);
     expect(el.querySelector('[data-testid="layout-summary"]')?.textContent).toContain('55.5 sq ft');
 
     // One screen at a time: Measure shows the sketch, not the quote.
     expect(el.querySelector('[data-testid="quote-card"]')).toBeNull();
-    expect([...el.querySelectorAll('[data-testid="page-tabs"] [role="tab"]')].map((t) => t.textContent?.trim())).toEqual(['Measure', 'Quote']);
-    el.querySelector<HTMLButtonElement>('[data-testid="tab-quote"]')!.click();
+    el.querySelector<HTMLButtonElement>('[data-testid="track-quote"] button')!.click();
     await settle();
     expect(el.querySelector('[data-testid="page-next"]')).toBeNull(); // last screen
 
@@ -80,7 +80,7 @@ describe('WorkspacePage (2n-f)', () => {
     await settle();
 
     expect(el.querySelector('[data-testid="accepted"]')?.textContent).toContain('deposit is the next step');
-    expect(el.querySelector('[data-testid="stage-rail"] [aria-current="step"]')?.textContent).toContain('Deposit');
+    expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Deposit');
     expect(el.querySelector('[data-testid="accept-quote"]')).toBeNull();
   });
 

@@ -6,6 +6,7 @@ import { describeError } from '../../core/api/describe-error';
 import { GuidedStepsComponent } from '../quote/guided-steps.component';
 import { GROUP_TITLES, GuidedLine, Project, STAGES, layoutSketch } from '../quote/guided';
 import { ConciergePanelComponent } from './concierge-panel.component';
+import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tracker.component';
 
 /**
  * The project workspace (2n-f), the owner's mockup: stage rail, the concierge beside the work,
@@ -15,7 +16,7 @@ import { ConciergePanelComponent } from './concierge-panel.component';
  */
 @Component({
   selector: 'bp-workspace-page',
-  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent],
+  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent, ProgressTrackerComponent],
   template: `
     <div class="page">
       @if (loaded.error()) {
@@ -29,13 +30,7 @@ import { ConciergePanelComponent } from './concierge-panel.component';
           <a routerLink="/projects" class="btn">My projects</a>
         </header>
 
-        <ol class="rail" aria-label="Project stages" data-testid="stage-rail">
-          @for (s of stages; track s.id; let i = $index) {
-            <li [class.done]="i < stageIndex()" [class.current]="i === stageIndex()" [attr.aria-current]="i === stageIndex() ? 'step' : null">
-              @if (i < stageIndex()) { <span aria-hidden="true">✓ </span> }{{ s.label }}
-            </li>
-          }
-        </ol>
+        <bp-progress-tracker [steps]="journey()" [current]="locked() ? 'deposit' : page()" (selected)="page.set($event)" />
 
         <div class="layout">
           <bp-concierge-panel class="chat" [projectId]="p.id" [askText]="askText()" (projectChanged)="refresh()" />
@@ -49,12 +44,6 @@ import { ConciergePanelComponent } from './concierge-panel.component';
             </p>
 
             <!-- One step per screen (owner): Measure, Options, Protection, Quote -->
-            <div class="tabs" role="tablist" aria-label="Project steps" data-testid="page-tabs">
-              @for (pg of pages(); track pg.id) {
-                <button type="button" role="tab" class="tab" [class.active]="page() === pg.id" [attr.aria-selected]="page() === pg.id"
-                        (click)="page.set(pg.id)" [disabled]="pg.id !== 'quote' && locked()" [attr.data-testid]="'tab-' + pg.id">{{ pg.label }}</button>
-              }
-            </div>
 
             <div class="screen" [class.with-sketch]="page() === 'measure'">
               @if (p.sku && !locked()) {
@@ -209,6 +198,16 @@ export class WorkspacePage {
     source: this.stage,
     computation: (stage) => (stage === 'quote' || stage === 'deposit' ? 'quote' : 'measure'),
   });
+  /** The whole journey in one tracker: done before the project, this project's screens, then what follows the quote. */
+  protected readonly journey = computed<TrackerStep[]>(() => [
+    { id: 'zip', label: 'ZIP' },
+    { id: 'type', label: 'Project type' },
+    { id: 'product', label: 'Product' },
+    ...this.pages().map((p) => ({ ...p, clickable: !this.locked() })),
+    { id: 'deposit', label: 'Deposit' },
+    { id: 'measure-visit', label: 'Measure visit' },
+    { id: 'install', label: 'Install' },
+  ]);
   protected readonly pageIndex = computed(() => this.pages().findIndex((p) => p.id === this.page()));
   /** Accepted: answers can't change, only the quote is shown. */
   protected readonly locked = computed(() => this.project()?.stage === 'deposit');

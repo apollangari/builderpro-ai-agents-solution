@@ -7,6 +7,7 @@ import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource } from '../catalog/catalog.api';
 import { categoryTabs, keyAttributes } from '../catalog/picker';
 import { Project } from './guided';
+import { ProgressTrackerComponent } from '../../shared/progress-tracker.component';
 
 /** GET /api/catalog/service-area answer. Mirrors ServiceAreaDto in C#: yes/no only, never the store's ZIP lists. */
 interface ServiceArea {
@@ -26,14 +27,10 @@ type Step = 'zip' | 'type' | 'product';
  */
 @Component({
   selector: 'bp-new-quote-page',
-  imports: [CurrencyPipe],
+  imports: [CurrencyPipe, ProgressTrackerComponent],
   template: `
     <div class="page">
-      <ol class="steps" aria-label="Progress">
-        @for (s of stepLabels; track s.id; let i = $index) {
-          <li [class.done]="i < stepIndex()" [class.current]="i === stepIndex()" [attr.aria-current]="i === stepIndex() ? 'step' : null">{{ s.label }}</li>
-        }
-      </ol>
+      <bp-progress-tracker [steps]="stepLabels" [current]="step()" />
 
       @switch (step()) {
         @case ('zip') {
