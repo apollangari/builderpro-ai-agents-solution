@@ -62,7 +62,7 @@ public static class IdentityEndpoints
         return Results.Ok((await store.ListByTenantAsync(tenantId, ct)).Select(m => ToDto(m, now)));
     }
 
-    internal static async Task<IResult> UpsertAsync(UpsertMembershipRequest request, IMembershipStore store, IConfiguration config, TimeProvider clock, CancellationToken ct)
+    internal static async Task<IResult> UpsertAsync(UpsertMembershipRequest request, IMembershipStore store, IConfiguration config, TimeProvider clock, ITenantCacheInvalidator tenantCache, CancellationToken ct)
     {
         if (!ClaimsNormalizer.IsIdentifier(request.TenantId)) return Problem(400, "invalid_tenant", "tenantId is not a valid identifier.");
         if (string.IsNullOrWhiteSpace(request.UserKey) || request.UserKey.Length > 200) return Problem(400, "invalid_user", "userKey is required.");
@@ -74,12 +74,15 @@ public static class IdentityEndpoints
         if (unknown.Length > 0) return Problem(400, "unknown_scope", $"Not configured: {string.Join(", ", unknown)}");
 
         var membership = await store.UpsertAsync(request.TenantId, request.UserKey, request.CustomerId, request.Scopes, request.ExpiresAt, ct);
+        await tenantCache.InvalidateAsync(membership.UserKey, membership.TenantId, ct);   // other services see the change now
         return Results.Ok(ToDto(membership, clock.GetUtcNow()));
     }
 
-    internal static async Task<IResult> RevokeAsync(Guid id, RevokeRequest request, IMembershipStore store, TimeProvider clock, CancellationToken ct)
+    internal static async Task<IResult> RevokeAsync(Guid id, RevokeRequest request, IMembershipStore store, TimeProvider clock, ITenantCacheInvalidator tenantCache, CancellationToken ct)
     {
         var revoked = await store.RevokeAsync(id, request.Reason ?? "revoked", ct);
+        // Revocation must be immediate everywhere, not "within the cache TTL".
+        if (revoked is not null) await tenantCache.InvalidateAsync(revoked.UserKey, revoked.TenantId, ct);
         return revoked is null ? Results.NotFound() : Results.Ok(ToDto(revoked, clock.GetUtcNow()));
     }
 

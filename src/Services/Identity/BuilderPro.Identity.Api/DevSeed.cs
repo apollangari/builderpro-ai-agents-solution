@@ -30,11 +30,13 @@ public static class DevSeed
         var issuer = app.Configuration["Auth:Authority"]!.TrimEnd('/');
         var seeds = app.Configuration.GetSection("Identity:DevMemberships").Get<SeedMembership[]>() ?? [];
         var store = app.Services.GetRequiredService<IMembershipStore>();
+        var tenantCache = app.Services.GetRequiredService<ITenantCacheInvalidator>();
 
         foreach (var seed in seeds)
         {
             var key = ExternalIdentityKey.ForIssuerAndSubject(issuer, seed.Subject);
             await store.UpsertAsync(seed.TenantId, key, seed.CustomerId, seed.Scopes, expiresAt: null, CancellationToken.None);
+            await tenantCache.InvalidateAsync(key, seed.TenantId, CancellationToken.None);
         }
         app.Logger.LogInformation("Seeded {Count} development memberships for issuer {Issuer}", seeds.Length, issuer);
     }

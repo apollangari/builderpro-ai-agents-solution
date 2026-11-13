@@ -26,12 +26,12 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2d | Quote API: catalog prices + `QuotePricer`, scopes, customer visibility ([LEARN](learn/02d-quote-api.md)) |
 | 2y' | Navy & Sand theme (Option A), `ThemeService` white-label accent |
 | 2e | Dapper in every store (SQL unchanged); store tests against real Postgres (Testcontainers); roofing products in the dev seed |
+| 2f | Redis for hot reads: tenant lookup + product lists, invalidated by the data owner ([LEARN](learn/02f-redis-hot-reads.md)) |
 
 ## Next
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2f | **Redis for hot reads**: cache the tenant lookup (invalidated on revoke) and each tenant's product list (invalidated on change) | Identity/Catalog calls drop on repeat requests; revoke still takes effect immediately |
 | 2g | **Roof estimator** (domain code): roof area + pitch + waste -> squares, bundles, rolls | Unit tests; quantities never come from an LLM |
 | 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |

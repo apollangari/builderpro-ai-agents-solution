@@ -35,14 +35,30 @@ public interface ITenantLookup
 public static class TenantLookupSetup
 {
     /// <summary>
-    /// Registers <see cref="ITenantLookup"/> as a typed HttpClient to the Identity service.
+    /// Registers <see cref="ITenantLookup"/>: a typed HttpClient to the Identity service, wrapped in
+    /// <see cref="CachingTenantLookup"/> when a Redis "cache" connection is configured (LEARN 2f).
     /// "http://identity" is a LOGICAL name resolved by service discovery; retries, timeouts and the
     /// circuit breaker come from ServiceDefaults.
     /// </summary>
     public static IServiceCollection AddTenantLookup(this IServiceCollection services, IConfiguration config)
     {
-        services.AddHttpClient<ITenantLookup, IdentityTenantLookup>(c =>
+        services.AddHttpClient<IdentityTenantLookup>(c =>
             c.BaseAddress = new Uri(config["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
+
+        if (TenantCacheSetup.HasCache(config))
+        {
+            var ttl = TimeSpan.FromSeconds(config.GetValue<int?>("Tenancy:CacheSeconds") ?? 60);
+            services.AddTransient<ITenantLookup>(sp => new CachingTenantLookup(
+                sp.GetRequiredService<IdentityTenantLookup>(),
+                sp.GetRequiredService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>(),
+                sp.GetRequiredService<AuthOptions>(),
+                ttl,
+                sp.GetRequiredService<ILogger<CachingTenantLookup>>()));
+        }
+        else
+        {
+            services.AddTransient<ITenantLookup>(sp => sp.GetRequiredService<IdentityTenantLookup>());
+        }
         return services;
     }
 }

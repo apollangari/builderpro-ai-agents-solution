@@ -13,9 +13,15 @@ builder.AddServiceDefaults();
 // No connection string -> startup fails (there is NO in-memory fallback at runtime).
 builder.AddNpgsqlDataSource("identitydb");
 
+// Redis "cache" (LEARN 2f): only when the AppHost provides one. No cache configured = no caching,
+// never an in-process fallback (a per-process cache can't be invalidated from Identity).
+if (TenantCacheSetup.HasCache(builder.Configuration)) builder.AddRedisDistributedCache("cache");
+
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IMembershipStore, PostgresMembershipStore>();
+// Membership changes delete the cached tenant lookups of the other services (LEARN 2f).
+builder.Services.AddTenantCacheInvalidation(builder.Configuration);
 builder.Services.AddBuilderProAuth(builder.Configuration);
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(IdentityEndpoints.AdminPolicy, p => p.RequireAuthenticatedUser()

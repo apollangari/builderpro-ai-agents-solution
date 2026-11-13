@@ -6,6 +6,7 @@
 // 1d: + Postgres + Identity service: tenant comes from MEMBERSHIPS, not just the token.
 // 2a: + Catalog service: products per tenant; asks Identity which tenant the caller is in.
 // 2d: + Quotes service: prices quotes with catalog list prices and the pure pricing domain.
+// 2f: + Redis: hot-read cache for tenant lookups and catalog product lists.
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -42,14 +43,22 @@ var catalogDb = postgres.AddDatabase("catalogdb");
 var quotesDb = postgres.AddDatabase("quotesdb");
 
 // ---------------------------------------------------------------------------
+// Redis: a CACHE, never a source of truth. Services that read cached data and Identity
+// (which invalidates tenant lookups on membership changes) all reference it.
+// ---------------------------------------------------------------------------
+var cache = builder.AddRedis("cache");
+
+// ---------------------------------------------------------------------------
 // Identity service: tenant memberships. Seeds the Keycloak test users in Development.
 // ---------------------------------------------------------------------------
 var identity = builder.AddProject<Projects.BuilderPro_Identity_Api>("identity")
     .WithReference(identityDb)     // injects ConnectionStrings__identitydb
+    .WithReference(cache)          // injects ConnectionStrings__cache
     .WithEnvironment("Auth__Authority", realmUrl)
     .WithEnvironment("Auth__RequireHttpsMetadata", "false")
     .WithHttpHealthCheck("/health")
     .WaitFor(identityDb)
+    .WaitFor(cache)
     .WaitFor(keycloak);
 
 // ---------------------------------------------------------------------------
@@ -58,11 +67,13 @@ var identity = builder.AddProject<Projects.BuilderPro_Identity_Api>("identity")
 // ---------------------------------------------------------------------------
 var catalog = builder.AddProject<Projects.BuilderPro_Catalog_Api>("catalog")
     .WithReference(catalogDb)      // injects ConnectionStrings__catalogdb
+    .WithReference(cache)
     .WithReference(identity)       // injects services__identity__http__0
     .WithEnvironment("Auth__Authority", realmUrl)
     .WithEnvironment("Auth__RequireHttpsMetadata", "false")
     .WithHttpHealthCheck("/health")
     .WaitFor(catalogDb)
+    .WaitFor(cache)
     .WaitFor(identity);
 
 // ---------------------------------------------------------------------------
@@ -71,12 +82,14 @@ var catalog = builder.AddProject<Projects.BuilderPro_Catalog_Api>("catalog")
 // ---------------------------------------------------------------------------
 var quotes = builder.AddProject<Projects.BuilderPro_Quotes_Api>("quotes")
     .WithReference(quotesDb)       // injects ConnectionStrings__quotesdb
+    .WithReference(cache)
     .WithReference(identity)
     .WithReference(catalog)
     .WithEnvironment("Auth__Authority", realmUrl)
     .WithEnvironment("Auth__RequireHttpsMetadata", "false")
     .WithHttpHealthCheck("/health")
     .WaitFor(quotesDb)
+    .WaitFor(cache)
     .WaitFor(identity)
     .WaitFor(catalog);
 

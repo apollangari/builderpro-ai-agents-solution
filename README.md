@@ -56,6 +56,8 @@ docs/                           setup, branching, learning guides, ADRs
 | 2b | Catalog page in Angular (`/catalog`, signal-first) | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md#3-try-it) |
 | 2c | Pricing as pure domain code (Money, rounding, QuotePricer) | ✅ | [docs/learn/02c-pricing-domain.md](docs/learn/02c-pricing-domain.md) |
 | 2d | Quote API: catalog prices, domain totals, scopes | ✅ | [docs/learn/02d-quote-api.md](docs/learn/02d-quote-api.md) |
+| 2e | Dapper stores + real-Postgres store tests | ✅ | [docs/roadmap.md](docs/roadmap.md) |
+| 2f | Redis for hot reads (tenant lookup, product lists) | ✅ | [docs/learn/02f-redis-hot-reads.md](docs/learn/02f-redis-hot-reads.md) |
 
 ## How we work
 
