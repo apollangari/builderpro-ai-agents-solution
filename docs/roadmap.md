@@ -111,10 +111,8 @@ as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e 
 
 ## Open questions
 
-- **Foundry quota:** the gpt-4o deployment answers one call and then rate-limits (HTTP 429) the follow-up call
-  after a tool runs, so the assistant reports "busy". Raise the deployment's tokens-per-minute limit in the
-  Foundry portal (Deployments → gpt-4o → Edit), or use a local OpenAI-compatible LLM for development.
-
+- **Foundry quota (deferred to production, owner 2026-11-13):** the dev gpt-4o deployment is rate-limited;
+  development uses the local OpenAI-compatible LLM. Size the Foundry deployment when going to production (5a).
 ## Conventions
 
 - **Angular is signal-first.** Server data comes through `httpResource` (value / isLoading /
