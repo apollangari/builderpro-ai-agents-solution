@@ -34,6 +34,8 @@ public static class QuoteEndpoints
         api.MapPost("/", CreateAsync).WithSummary("Price and store a draft quote. Prices come from the catalog, totals from QuotePricer.");
         api.MapGet("/", ListAsync).WithSummary("Recent quotes: a customer's own, or the whole tenant's for staff.");
         api.MapGet("/{id:guid}", GetAsync).WithSummary("One quote. Another tenant's (or customer's) quote is a plain 404.");
+        api.MapPost("/estimators/roof", RoofAsync)
+            .WithSummary("Roof take-off (2g): footprint, pitch, waste, edges -> squares, bundles, rolls, drip edge. Quantities only, no prices.");
         api.MapPost("/estimates", EstimatesAsync)
             .WithSummary("Price each item on its own (catalog price + QuotePricer, tax included). Nothing is stored. For compare (2k) and agents.");
 
@@ -105,6 +107,15 @@ public static class QuoteEndpoints
     }
 
     public const int MaxEstimateItems = 6;
+
+    /// <summary>Pure take-off: no tenant or catalog needed, still requires a signed-in caller (group policy).</summary>
+    internal static IResult RoofAsync(RoofInput input)
+    {
+        var estimate = RoofEstimator.Estimate(input);
+        return estimate.Succeeded
+            ? Results.Ok(estimate.Quantities)
+            : Invalid([.. estimate.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, null))]);
+    }
 
     internal static async Task<IResult> EstimatesAsync(
         EstimateRequest request, HttpContext http, ITenantLookup tenants, ICatalogPrices catalog, IConfiguration config, CancellationToken ct)

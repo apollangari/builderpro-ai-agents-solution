@@ -347,3 +347,35 @@ public sealed class EstimateTests(QuotesFactory f) : IClassFixture<QuotesFactory
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
 }
+
+public sealed class RoofEstimatorApiTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    [Fact]
+    public async Task Returns_quantities_for_a_roof()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/estimators/roof", new { footprintSqFt = 2000, pitchRise = 6, wastePercent = 10, eavesAndRakesFt = 180 });
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var q = (await r.Content.ReadFromJsonAsync<BuilderPro.Quotes.Domain.RoofQuantities>())!;
+        Assert.Equal((24.60m, 74, 3, 18), (q.Squares, q.ShingleBundles, q.UnderlaymentRolls, q.DripEdgePieces));
+    }
+
+    [Fact]
+    public async Task Bad_input_is_400_with_codes()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/estimators/roof", new { footprintSqFt = 0, pitchRise = 40 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        var codes = (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors").EnumerateArray().Select(e => e.GetProperty("code").GetString()!).ToArray();
+        Assert.Equal(["invalid_footprint", "invalid_pitch"], codes);
+    }
+
+    [Fact]
+    public async Task Anonymous_is_401()
+    {
+        var r = await _f.CreateClient().PostAsJsonAsync("/api/quotes/estimators/roof", new { footprintSqFt = 1000, pitchRise = 6 });
+        Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
+    }
+}

@@ -27,6 +27,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2y' | Navy & Sand theme (Option A), `ThemeService` white-label accent |
 | 2e | Dapper in every store (SQL unchanged); store tests against real Postgres (Testcontainers); roofing products in the dev seed |
 | 2f | Redis for hot reads: tenant lookup + product lists, invalidated by the data owner ([LEARN](learn/02f-redis-hot-reads.md)) |
+| 2g | Roof estimator (domain): footprint + pitch + waste + edges -> pitch factor, squares, bundles, underlayment rolls, drip edge (materials rounded up); `POST /api/quotes/estimators/roof`, quantities only |
 | 2l-b | "My photo": upload a room photo (stays in the browser, 15 MB max), drag 4 corners (mouse, touch or arrow keys) and the product is drawn in perspective (homography + triangle subdivision on canvas; paint as a multiply colour layer) |
 | 2l-a | Visualizer default scenes for every product type: kitchen (countertops, cabinets), house roof, backyard (sheds, decking, fencing), room floor, room wall (paint colour), house front (windows, doors); "See it in a room" from the picker; switch options in place |
 | 2k | Compare: pick 2-4 products of one category; side-by-side attributes; estimates at the category's typical size from `POST /api/quotes/estimates` (catalog price + QuotePricer, tax incl., nothing stored); lowest marked |
@@ -42,7 +43,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2g | **Roof estimator** (domain code): roof area + pitch + waste -> squares, bundles, rolls | Unit tests; quantities never come from an LLM |
 | 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
