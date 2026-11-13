@@ -48,7 +48,14 @@ interface Reply {
     </section>
   `,
   styles: `
+    :host { display: block; }
     .chat { display: grid; gap: .75rem; }
+    /* Wide screens: fill the column to the bottom of the work beside it (owner: symmetry); the log scrolls inside. */
+    @media (min-width: 961px) {
+      :host { position: relative; min-height: 24rem; height: 100%; }
+      .chat { position: absolute; inset: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
+      .log { max-height: none; }
+    }
     .head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .head .card-title { margin: 0; }
     .dot { width: .6rem; height: .6rem; border-radius: 50%; background: #2e7d32; }

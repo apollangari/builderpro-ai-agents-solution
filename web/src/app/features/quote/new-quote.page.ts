@@ -171,7 +171,7 @@ type Step = 'zip' | 'type' | 'product';
       border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 600; cursor: pointer;
     }
     .zip-pill .change { color: var(--bp-accent); font-weight: 400; text-decoration: underline; }
-    .browse { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; }
+    .browse { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: stretch; }
     @media (max-width: 900px) { .browse { grid-template-columns: 1fr; } }
     .catalog { display: grid; gap: .75rem; }
     .filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
