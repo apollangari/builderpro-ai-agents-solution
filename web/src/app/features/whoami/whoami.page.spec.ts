@@ -16,9 +16,11 @@ const platformView = {
 describe('WhoAmIPage', () => {
   let http: HttpTestingController;
 
+  // httpResource sends its request from an effect: TestBed.tick() runs effects + change
+  // detection, so the request is visible to HttpTestingController afterwards.
   async function render() {
     const fixture = TestBed.createComponent(WhoAmIPage);
-    fixture.detectChanges();
+    TestBed.tick();
     return fixture;
   }
 
@@ -41,6 +43,35 @@ describe('WhoAmIPage', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[data-testid="tenant"]')?.textContent).toContain('t-acme');
     expect(el.querySelector('[data-testid="platform-tenant"]')?.textContent).toContain('t-acme');
+  });
+
+  it('shows loading until each answer arrives', async () => {
+    const fixture = await render();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="token-loading"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="platform-loading"]')).not.toBeNull();
+
+    http.expectOne('/api/me').flush(tokenView);
+    http.expectOne('/api/identity/me').flush(platformView);
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="token-loading"]')).toBeNull();
+  });
+
+  it('refreshes both views on demand', async () => {
+    const fixture = await render();
+    http.expectOne('/api/me').flush(tokenView);
+    http.expectOne('/api/identity/me').flush(platformView);
+    await fixture.whenStable();
+
+    (fixture.nativeElement as HTMLElement).querySelector('button')!.click();
+    TestBed.tick();
+    http.expectOne('/api/me').flush({ ...tokenView, tenantId: 't-globex' });
+    http.expectOne('/api/identity/me').flush({ ...platformView, tenantId: 't-globex' });
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="tenant"]')?.textContent).toContain('t-globex');
+    expect(el.querySelector('[data-testid="platform-tenant"]')?.textContent).toContain('t-globex');
   });
 
   it('keeps the token view when the platform refuses (no membership)', async () => {

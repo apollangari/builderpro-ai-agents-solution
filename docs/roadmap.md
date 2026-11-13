@@ -19,6 +19,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 0a | This roadmap; README stack version |
 | 0b | `ASPIRE010` resolved: keep the NuGet-pinned dashboard, warning suppressed with a reason |
 | 2a | Catalog service: tenant-scoped products, tenant resolved by Identity ([LEARN](learn/02a-catalog-service.md)) |
+| 2x | WhoAmI page on `httpResource` (signal-first Angular) |
 
 ## Next
 
@@ -32,6 +33,12 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
+
+## Conventions
+
+- **Angular is signal-first.** Server data comes through `httpResource` (value / isLoading /
+  error / reload as signals). RxJS only where angular-auth-oidc-client requires it (its config
+  loader and `logoff()`). This applies to every new page, including the agents' chat UI.
 
 ## How a deliverable is sized
 

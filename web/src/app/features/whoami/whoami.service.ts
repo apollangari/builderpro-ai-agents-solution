@@ -1,6 +1,4 @@
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { HttpErrorResponse, HttpResourceRef, httpResource } from '@angular/common/http';
 
 /** GET /api/me (Me API): what the ACCESS TOKEN says. Mirrors MeResponse in C#. */
 export interface MeResponse {
@@ -25,26 +23,29 @@ export interface PlatformMeResponse {
   source: string;
 }
 
-/**
+/*
+ * Signal-first data access: each function returns an httpResource, a signal-based view of one
+ * HTTP request (value / isLoading / error / reload). No subscribe, no manual state machine.
+ *
+ * Call them in an injection context (a component field initializer), so the request lives and
+ * dies with that component. httpResource goes through HttpClient, so the OIDC authInterceptor
+ * still adds the bearer token.
+ *
  * Relative URLs only: the dev server proxies /api to the gateway (proxy.conf.js),
  * and the gateway routes /api/me -> me-api, /api/identity/** -> identity.
  */
-@Injectable({ providedIn: 'root' })
-export class WhoAmIService {
-  private readonly http = inject(HttpClient);
+export function meResource(): HttpResourceRef<MeResponse | undefined> {
+  return httpResource<MeResponse>(() => '/api/me');
+}
 
-  getMe(): Observable<MeResponse> {
-    return this.http.get<MeResponse>('/api/me');
-  }
-
-  getPlatformMe(): Observable<PlatformMeResponse> {
-    return this.http.get<PlatformMeResponse>('/api/identity/me');
-  }
+export function platformMeResource(): HttpResourceRef<PlatformMeResponse | undefined> {
+  return httpResource<PlatformMeResponse>(() => '/api/identity/me');
 }
 
 /** Turns an API error into a sentence a user (and a learner) can act on. */
-export function describeError(err: HttpErrorResponse | { status?: number; error?: unknown }): string {
-  const code = (err.error as { code?: string } | null)?.code;
+export function describeError(err: HttpErrorResponse | { status?: number; error?: unknown } | Error | undefined): string {
+  const http = err as { status?: number; error?: unknown } | undefined;
+  const code = (http?.error as { code?: string } | null | undefined)?.code;
   switch (code) {
     case 'no_membership':
       return 'You are signed in, but not a member of any tenant yet (403 no_membership).';
@@ -53,7 +54,7 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
     case 'tenant_not_permitted':
       return 'Your token names a tenant you are not a member of (403 tenant_not_permitted).';
   }
-  switch (err.status) {
+  switch (http?.status) {
     case 401:
       return 'The API rejected your token (401). See LEARN 1b, lab C.';
     case 429:
