@@ -193,7 +193,8 @@ type Step = 'zip' | 'type' | 'product';
       min-height: var(--bp-tap); padding: 0 .9rem; border-radius: var(--bp-radius-md); width: 12rem;
       border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit;
     }
-    .actions, .nav { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .nav { display: flex; gap: .6rem; flex-wrap: wrap; justify-content: flex-end; }
     .link { min-height: var(--bp-tap); background: none; border: 0; color: var(--bp-accent); text-decoration: underline; cursor: pointer; font: inherit; }
     .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 1rem; }
     .tile {

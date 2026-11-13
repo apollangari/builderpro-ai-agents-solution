@@ -64,6 +64,7 @@ interface Turn {
     .head .card-title { margin: 0; }
     .dot { width: .6rem; height: .6rem; border-radius: 50%; background: #2e7d32; }
     .log { display: grid; gap: .55rem; max-height: 52vh; overflow-y: auto; align-content: start; }
+    .log > * { align-self: start; }
     .msg { margin: 0; max-width: 92%; padding: .6rem .85rem; border-radius: var(--bp-radius-md); background: var(--bp-surface-muted); white-space: pre-wrap; }
     .msg.user { justify-self: end; background: var(--bp-accent); color: var(--bp-on-accent); }
     .ideas { display: flex; flex-wrap: wrap; gap: .4rem; }

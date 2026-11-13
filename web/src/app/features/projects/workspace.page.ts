@@ -157,7 +157,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
     .screen { display: grid; gap: 1rem; align-items: start; }
     .screen.with-sketch { grid-template-columns: minmax(0, 2.4fr) minmax(12rem, 1fr); }
     @media (max-width: 1100px) { .screen.with-sketch { grid-template-columns: 1fr; } }
-    .pager { display: flex; justify-content: space-between; gap: .6rem; }
+    .pager { display: flex; justify-content: flex-end; gap: .6rem; }
     .substep { margin: 0; font-weight: 600; color: var(--bp-accent); }
     .card-row { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
     .sketch { width: 100%; max-height: 12rem; }
@@ -172,7 +172,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
     .totals { display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; margin: .5rem 0; }
     .totals dd { margin: 0; text-align: right; }
     .totals .total { font-weight: 700; font-size: 1.15rem; }
-    .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .actions { display: flex; gap: .6rem; flex-wrap: wrap; justify-content: flex-end; }
     .ok { padding: .6rem .8rem; border-radius: var(--bp-radius-md); background: var(--bp-accent-soft); color: var(--bp-accent); font-weight: 600; }
   `,
 })

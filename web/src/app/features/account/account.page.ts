@@ -148,7 +148,7 @@ const HOURS = [
     .hint { font-weight: 400; font-size: .85rem; color: var(--bp-ink-muted); }
     .field-error { margin: 0; color: var(--bp-danger, #b3261e); }
     .ok { margin: 0; color: var(--bp-accent); font-weight: 600; }
-    .actions { display: flex; gap: .6rem; }
+    .actions { display: flex; gap: .6rem; justify-content: flex-end; }
   `,
 })
 export class AccountPage {

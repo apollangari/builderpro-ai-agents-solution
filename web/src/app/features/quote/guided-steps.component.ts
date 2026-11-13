@@ -265,7 +265,7 @@ const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][
     .totals { display: grid; grid-template-columns: 1fr auto; gap: .25rem 1rem; margin: .5rem 0 0; }
     .totals dd { margin: 0; text-align: right; }
     .totals .total { font-weight: 700; font-size: 1.1rem; }
-    .actions { display: flex; gap: .6rem; }
+    .actions { display: flex; gap: .6rem; justify-content: flex-end; }
   `,
 })
 export class GuidedStepsComponent {

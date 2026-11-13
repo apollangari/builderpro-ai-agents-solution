@@ -60,7 +60,8 @@ interface Reply {
     .head .card-title { margin: 0; }
     .dot { width: .6rem; height: .6rem; border-radius: 50%; background: #2e7d32; }
     .small { font-size: .85rem; }
-    .log { display: grid; gap: .6rem; max-height: 55vh; overflow-y: auto; }
+    .log { display: grid; gap: .6rem; max-height: 55vh; overflow-y: auto; align-content: start; }
+    .log > * { align-self: start; }
     .msg { margin: 0; max-width: 90%; padding: .65rem .9rem; border-radius: var(--bp-radius-md); background: var(--bp-surface-muted); white-space: pre-wrap; }
     .msg.user { justify-self: end; background: var(--bp-accent); color: var(--bp-on-accent); }
     .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: center; }
