@@ -53,6 +53,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 3d | **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
 | 1h | **Packages per store**: a store's package turns on (a) the guided workflow with a **help chat** that only answers questions (no agent acting), and/or (b) the **AI concierge** that works on the project, and/or (c) **AI phone scheduling** (4b). Enforced server-side per tenant (the concierge refuses stores without it; the UI hides what isn't included) | A store without the agent package gets a refusal from the concierge API even if called directly |
+| 1i | **Salesperson login (assisted selling)**: a store role `sales` (staff, scopes to create projects on behalf of customers). The salesperson finds the customer of their store (name, email or phone) or invites a new one (sign-up link by email/text), then runs the same flow for them: ZIP, product, measurements, options, protection, numbered quote. The project belongs to the customer and shows in their My projects; it records "prepared by <salesperson>". The customer accepts and pays the 5 % deposit themselves (link sent by email/text, or on their own device in store) | A salesperson sees only their store's customers; every project/quote they touch records who did it; Accept and payment stay customer-only (a salesperson can't press them for the customer) |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
 | 6a | **Deposit holds the price**: after Accept, the customer pays a **5 % advance** (payment provider in test mode; amount from the pricing engine); only a paid deposit holds the price until the quote's validity date; receipt | Without a paid deposit the price is not held; only the customer can pay; an agent can't |
@@ -110,6 +111,10 @@ as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e 
     modelled on a large home-improvement retailer's public countertop wizard (flow only, no content copied).
 
 ## Open questions
+
+- **Salesperson extras (1i):** may a salesperson apply discounts (within a store limit, with a reason), and
+  are sales credited to them (commission reports)? Default until decided: no discounts, "prepared by" recorded
+  for reporting.
 
 - **Foundry quota (deferred to production, owner 2026-11-13):** the dev gpt-4o deployment is rate-limited;
   development uses the local OpenAI-compatible LLM. Size the Foundry deployment when going to production (5a).
