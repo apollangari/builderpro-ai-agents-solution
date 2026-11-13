@@ -68,7 +68,7 @@ describe('App shell', () => {
     const menu = el.querySelector('[data-testid="account-menu"]')!;
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect([...menu.querySelectorAll('[role="menuitem"]')].map((m) => m.textContent?.trim())).toEqual(['My projects', 'My quotes', 'Account', 'Sign out']);
-    expect(el.querySelector('nav')?.textContent).not.toContain('My quotes'); // moved out of the main nav
+    expect(el.querySelector('nav')).toBeNull(); // no top menu: the customer is in one flow (owner)
   });
 
   it('syncs contact consent once when signed in', async () => {

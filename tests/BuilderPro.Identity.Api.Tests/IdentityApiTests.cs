@@ -39,6 +39,7 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
 
 public sealed class IdentityFactory : WebApplicationFactory<Program>
 {
+    public FakeUserDirectory Directory { get; } = new();
     public static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
     public InMemoryMembershipStore Store { get; } = new(new FakeTimeProvider(Now));
     public InMemoryConsentStore Consents { get; } = new();
@@ -60,6 +61,8 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>
             s.AddSingleton<IMembershipStore>(Store);
             s.RemoveAll<IConsentStore>();
             s.AddSingleton<IConsentStore>(Consents);
+            s.RemoveAll<IUserDirectory>();
+            s.AddSingleton<IUserDirectory>(Directory);
             s.RemoveAll<TimeProvider>();
             s.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
             s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })

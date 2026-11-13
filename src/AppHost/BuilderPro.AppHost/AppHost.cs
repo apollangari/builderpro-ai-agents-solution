@@ -28,12 +28,15 @@ var mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.33")
     .WithHttpHealthCheck("/livez", endpointName: "http");
 
 var keycloakAdminPassword = builder.AddParameter("keycloak-admin-password", value: "admin", secret: true);
+// The Identity service's own Keycloak client (profile edits, password changes). Dev default; set a real one in user secrets.
+var identityClientSecret = builder.AddParameter("keycloak-identity-client-secret", value: "builderpro-identity-dev-secret", secret: true);
 
 var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.4")
     .WithArgs("start-dev", "--import-realm")
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", keycloakAdminPassword)
     .WithEnvironment("KC_HEALTH_ENABLED", "true")
+    .WithEnvironment("IDENTITY_CLIENT_SECRET", identityClientSecret)   // read by the realm import
     // Realm (clients, test users, tenant mapper) imported on first start.
     .WithBindMount("../../../infra/keycloak/realms", "/opt/keycloak/data/import", isReadOnly: true)
     // 1e: Navy & Sand login, sign-up and password pages (CSS on top of keycloak.v2).
@@ -106,6 +109,8 @@ var identity = builder.AddProject<Projects.BuilderPro_Identity_Api>("identity")
     .WithReference(identityDb)     // injects ConnectionStrings__identitydb
     .WithReference(cache)          // injects ConnectionStrings__cache
     .WithEnvironment("Auth__Authority", realmUrl)
+    .WithEnvironment("Keycloak__BaseUrl", keycloak.GetEndpoint("http"))
+    .WithEnvironment("Keycloak__ClientSecret", identityClientSecret)
     .WithEnvironment("Auth__RequireHttpsMetadata", "false")
     .WithHttpHealthCheck("/health")
     .WaitFor(identityDb)

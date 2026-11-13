@@ -243,6 +243,18 @@
       ]
     },
     {
+      "clientId": "builderpro-identity",
+      "name": "BuilderPro Identity service (profile and password on the user's behalf)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${IDENTITY_CLIENT_SECRET:builderpro-identity-dev-secret}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect"
+    },
+    {
       "clientId": "builderpro-api",
       "name": "BuilderPro API (audience)",
       "enabled": true,
@@ -254,6 +266,12 @@
     }
   ],
   "users": [
+    {
+      "username": "service-account-builderpro-identity",
+      "enabled": true,
+      "serviceAccountClientId": "builderpro-identity",
+      "clientRoles": { "realm-management": [ "manage-users", "view-users", "query-users" ] }
+    },
     {
       "username": "alice",
       "email": "alice@acme.test",

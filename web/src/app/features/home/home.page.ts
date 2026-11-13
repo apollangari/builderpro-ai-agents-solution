@@ -9,22 +9,20 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
   template: `
     <div class="page">
       <section class="card home">
-        <span class="eyebrow">Agent-first home improvement</span>
-        <h1>Plan the project. Let the agents do the legwork.</h1>
-        <p class="lede">
-          Agents interpret and propose. Prices, dates and approvals always come from the platform.
-        </p>
+        <span class="eyebrow">Home improvement, priced for your address</span>
+        <h1>What would you like to do?</h1>
+        <p class="lede">Choose, measure and get a quote step by step, or tell our concierge about your project.</p>
 
+        <!-- One flow (owner): no top menu. The store's package (1h) decides which of the two it offers. -->
         @if (isAuthenticated()) {
           <div class="actions" data-testid="home-signed-in">
-            <a routerLink="/catalog" class="btn btn-primary">Browse your catalog</a>
-            <a routerLink="/me" class="btn">Who am I?</a>
+            <a routerLink="/quote/new" class="btn btn-primary" data-testid="start-guided">Start a project</a>
+            <a routerLink="/assistant" class="btn" data-testid="start-concierge">Plan it with the concierge</a>
           </div>
-          <p class="hint">You're signed in.</p>
+          <p class="hint"><a routerLink="/projects">Continue a project</a></p>
         } @else {
           <div class="actions" data-testid="home-signed-out">
-            <a routerLink="/me" class="btn btn-primary">Sign in to continue</a>
-            <a routerLink="/catalog" class="btn">See the catalog</a>
+            <a routerLink="/quote/new" class="btn btn-primary">Sign in to start a project</a>
           </div>
           <p class="hint">
             This page is public; the others ask you to sign in. Local test users:

@@ -39,6 +39,7 @@ public static class IdentityEndpoints
             .WithSummary("The caller as the PLATFORM sees them: tenant resolved from memberships, not just the token.");
 
         api.MapConsentEndpoints();
+        api.MapProfileEndpoints();   // profile edit + change password (owner request)
 
         api.MapGet("/memberships/mine", MineAsync)
             .WithSummary("The caller's ACTIVE memberships with store names: what the store picker offers.");

@@ -24,6 +24,12 @@ builder.Services.AddSingleton<IConsentStore, PostgresConsentStore>();   // conta
 // Membership changes delete the cached tenant lookups of the other services (LEARN 2f).
 builder.Services.AddTenantCacheInvalidation(builder.Configuration);
 builder.Services.AddBuilderProAuth(builder.Configuration);
+
+// The user store behind sign-in (Keycloak locally): profile edits and password changes go through
+// this service's own confidential client. Not configured = those endpoints answer 503.
+var keycloak = builder.Configuration.GetSection("Keycloak").Get<KeycloakOptions>() ?? new KeycloakOptions();
+builder.Services.AddSingleton(keycloak);
+builder.Services.AddHttpClient<IUserDirectory, KeycloakUserDirectory>();
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(IdentityEndpoints.AdminPolicy, p => p.RequireAuthenticatedUser()
         .RequireRole(builder.Configuration["Auth:AdminRole"] ?? "platform-admin"));

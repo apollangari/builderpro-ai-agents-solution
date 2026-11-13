@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { httpResource } from '@angular/common/http';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
 import { PendingSignup } from './features/signup/pending-signup';
@@ -23,7 +23,7 @@ interface MyMembership {
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink],
   template: `
     <header class="bar">
       <div class="row">
@@ -78,13 +78,6 @@ interface MyMembership {
         }
       </div>
 
-      <nav class="row nav" aria-label="Main">
-        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
-        <a routerLink="/quote/new" routerLinkActive="active" data-testid="nav-start">Start a project</a>
-        <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
-        <a routerLink="/assistant" routerLinkActive="active">Concierge</a>
-        <a routerLink="/quote" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" data-testid="nav-quote">Quote@if (draft.count()) { <span class="count">{{ draft.count() }}</span> }</a>
-      </nav>
     </header>
     @if (notMemberHere(); as store) {
       <div class="warning host-unknown" role="alert" data-testid="host-not-member">
