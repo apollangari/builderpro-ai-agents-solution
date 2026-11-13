@@ -712,6 +712,28 @@ public sealed class ProjectApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
     }
 
     [Fact]
+    public async Task The_same_answers_in_another_shape_keep_the_quote_current()
+    {
+        var p = await NewProject();
+        await Put(p.Id, CompleteAnswers);
+        await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+
+        // Seen live: the page re-saved the concierge's answers with empty parts left out / added.
+        var same = await Put(p.Id, new
+        {
+            sku = "CT-QTZ",
+            measurements = new
+            {
+                countertop = new { layout = (string?)null, countertop = new[] { new { widthIn = 120m, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } }, backsplash = Array.Empty<object>() },
+                roof = (object?)null, rooms = (object?)null, count = (decimal?)null,
+            },
+            choices = new object[] { new { group = "edge", sku = "EDGE-OGEE", quantity = (decimal?)null }, new { group = "plan", sku = "PLAN-10Y" } },
+        });
+        Assert.True(same.Quote!.Current);
+        Assert.Equal(HttpStatusCode.OK, (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null)).StatusCode);
+    }
+
+    [Fact]
     public async Task An_expired_quote_cant_be_accepted()
     {
         using var f = new QuotesFactory();

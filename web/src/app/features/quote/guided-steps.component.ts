@@ -272,6 +272,8 @@ export class GuidedStepsComponent {
   protected readonly answers = signal<Answers>({});
   /** In a project, nothing is sent until the saved answers are back in the form (else defaults would overwrite them). */
   private readonly restored = signal(false);
+  /** The request as restored from the project: not saved again unless something actually changes. */
+  private restoredBody: string | null = null;
 
   /** The preview request: re-sent whenever a measurement or answer changes. */
   private readonly body = computed(() => {
@@ -294,6 +296,7 @@ export class GuidedStepsComponent {
     const id = this.projectId();
     const body = this.body();
     if (!id || !body || !this.restored()) return undefined;
+    if (JSON.stringify(body) === this.restoredBody) return undefined;
     return { url: `/api/projects/${encodeURIComponent(id)}/answers`, method: 'PUT', body: { sku: body.sku, measurements: body.measurements, choices: body.choices } };
   });
 
@@ -331,6 +334,7 @@ export class GuidedStepsComponent {
       if (this.projectId() && p) {
         this.form.set(formFromAnswers(o.measure, p.answers));
         this.answers.set(answersFromChoices(o.groups, p.answers.choices));
+        this.restoredBody = JSON.stringify(this.body());
       }
       this.restored.set(true);
     });

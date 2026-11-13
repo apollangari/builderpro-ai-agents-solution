@@ -157,8 +157,9 @@ public static class ProjectEndpoints
         var now = clock.GetUtcNow();
         if (quote?.Issue is null) return Problem(StatusCodes.Status409Conflict, "no_quote", "Get your quote first.");
         if (quote.Status == "accepted") return Problem(StatusCodes.Status409Conflict, "already_accepted", "This quote is already accepted.");
-        if (quote.Guided?.RequestJson != RequestJson(RequestOf(project)))
-            return Problem(StatusCodes.Status409Conflict, "quote_outdated", "Your answers changed since this quote. Get an updated quote first.");
+        var today = await GuidedQuoteEndpoints.PriceAsync(RequestOf(project), tenant.TenantId!, http, catalog, config, ct);
+        if (today.Result?.Quote is null || !SameQuote(quote.Priced, today.Result.Quote))
+            return Problem(StatusCodes.Status409Conflict, "quote_outdated", "Your answers or prices changed since this quote. Get an updated quote first.");
         if (quote.Issue.ValidUntil <= now) return Problem(StatusCodes.Status409Conflict, "quote_expired", "This quote expired. Get an updated quote.");
         if (!await quotes.AcceptAsync(tenant.TenantId!, tenant.CustomerId, quote.Id, now, ct))
             return Problem(StatusCodes.Status409Conflict, "quote_not_acceptable", "This quote can't be accepted.");
@@ -199,7 +200,17 @@ public static class ProjectEndpoints
         return new GuidedQuoteRequest(p.Zip, p.Sku, a.Measurements, a.Choices ?? []);
     }
 
-    /// <summary>The canonical form stored with an issued quote; equal strings = the quote matches the current answers.</summary>
+    /// <summary>
+    /// "Is the issued quote still what the customer would get?" Same lines (sku, quantity, unit price,
+    /// line total) and same total as pricing the current answers now. Compared on the RESULT, not the
+    /// request text: the same answers can be written in more than one JSON shape.
+    /// </summary>
+    internal static bool SameQuote(PricedQuote issued, PricedQuote now) =>
+        issued.Total == now.Total && issued.Lines.Count == now.Lines.Count
+        && issued.Lines.Zip(now.Lines).All(x => x.First.Sku == x.Second.Sku && x.First.Quantity == x.Second.Quantity
+                                              && x.First.UnitPrice == x.Second.UnitPrice && x.First.LineTotal == x.Second.LineTotal);
+
+    /// <summary>The request stored with an issued quote (what it was built from).</summary>
     internal static string RequestJson(GuidedQuoteRequest r) => JsonSerializer.Serialize(r, JsonSerializerOptions.Web);
 
     private static int ValidityDays(IConfiguration config) => config.GetValue<int?>("Quotes:ValidityDays") ?? 14;
@@ -211,12 +222,17 @@ public static class ProjectEndpoints
         Project p, HttpContext http, ICatalogPrices catalog, Quote? quote, IConfiguration? config, CancellationToken ct, TimeProvider? clock = null)
     {
         GuidedQuoteDto? preview = null;
+        PricedQuote? now = null;
         IReadOnlyList<QuoteErrorDto> errors = [];
         var request = RequestOf(p);
         if (p.Sku is not null && config is not null)
         {
             var outcome = await GuidedQuoteEndpoints.PriceAsync(request, p.TenantId, http, catalog, config, ct);
-            if (outcome.Result is not null) preview = GuidedQuoteEndpoints.ToDto(outcome.Measurement!, outcome.Result);
+            if (outcome.Result is not null)
+            {
+                preview = GuidedQuoteEndpoints.ToDto(outcome.Measurement!, outcome.Result);
+                now = outcome.Result.Quote;
+            }
             else errors = outcome.Errors;
         }
 
@@ -224,9 +240,10 @@ public static class ProjectEndpoints
         if (quote?.Issue is { } issue)
         {
             var dto = QuoteEndpoints.ToDto(quote);
-            var now = (clock ?? TimeProvider.System).GetUtcNow();
+            var clockNow = (clock ?? TimeProvider.System).GetUtcNow();
             issued = new IssuedQuoteDto(quote.Id, issue.Number, quote.Status, issue.ValidUntil, issue.AcceptedAt,
-                Current: quote.Guided?.RequestJson == RequestJson(request), Expired: quote.Status == "issued" && issue.ValidUntil <= now,
+                Current: quote.Status == "accepted" || (now is not null && SameQuote(quote.Priced, now)),
+                Expired: quote.Status == "issued" && issue.ValidUntil <= clockNow,
                 dto.Currency, dto.Lines, dto.Subtotal, dto.TaxRate, dto.Tax, dto.Total);
         }
 
