@@ -1,7 +1,8 @@
-import { Component, computed, inject } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, computed, effect, inject } from '@angular/core';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
+import { PendingSignup } from './features/signup/pending-signup';
 
 /**
  * The shell, "Option A: Studio split" header:
@@ -103,9 +104,19 @@ export class App {
   private readonly oidc = inject(OidcSecurityService);
   protected readonly theme = inject(ThemeService);
 
+  private readonly router = inject(Router);
+  private readonly pendingSignup = inject(PendingSignup);
+
   constructor() {
     // Static brand for now; later the tenant's config is passed here.
     this.theme.apply();
+
+    // Back from Keycloak after using a store's sign-up link: finish joining that store.
+    effect(() => {
+      if (this.isAuthenticated() && this.pendingSignup.get() && !this.router.url.startsWith('/welcome')) {
+        void this.router.navigate(['/welcome']);
+      }
+    });
   }
 
   protected readonly isAuthenticated = computed(() => this.oidc.authenticated().isAuthenticated);

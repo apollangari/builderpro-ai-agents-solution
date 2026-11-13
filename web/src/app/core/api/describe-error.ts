@@ -10,7 +10,13 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
   const code = (http?.error as { code?: string } | null | undefined)?.code;
   switch (code) {
     case 'no_membership':
-      return 'You are signed in, but not a member of any tenant yet (403 no_membership).';
+      return 'You are signed in, but not a member of any tenant yet. Ask your retailer for their sign-up link (403 no_membership).';
+    case 'store_not_found':
+      return "This sign-up link isn't valid or the store isn't accepting sign-ups. Ask your retailer for a new link.";
+    case 'invalid_store':
+      return "This sign-up link is broken. Ask your retailer for a new link.";
+    case 'membership_inactive':
+      return 'Your access to this store was removed. Contact the retailer if you think this is a mistake.';
     case 'multiple_active_memberships':
       return 'You belong to several tenants and the token does not say which one (409).';
     case 'tenant_not_permitted':

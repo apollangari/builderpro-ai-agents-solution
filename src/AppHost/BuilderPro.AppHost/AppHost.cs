@@ -25,9 +25,26 @@ var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26
     .WithEnvironment("KC_HEALTH_ENABLED", "true")
     // Realm (clients, test users, tenant mapper) imported on first start.
     .WithBindMount("../../../infra/keycloak/realms", "/opt/keycloak/data/import", isReadOnly: true)
+    // 1e: Navy & Sand login, sign-up and password pages (CSS on top of keycloak.v2).
+    .WithBindMount("../../../infra/keycloak/themes/builderpro", "/opt/keycloak/themes/builderpro", isReadOnly: true)
     .WithHttpEndpoint(port: 8080, targetPort: 8080, name: "http")
     .WithHttpEndpoint(targetPort: 9000, name: "management")
     .WithHttpHealthCheck("/health/ready", endpointName: "management");
+
+// "Continue with Google" (1e): only when BOTH user secrets exist, so the app runs without them.
+//   dotnet user-secrets set "Parameters:google-client-id" "..."     --project src/AppHost/BuilderPro.AppHost
+//   dotnet user-secrets set "Parameters:google-client-secret" "..." --project src/AppHost/BuilderPro.AppHost
+// The realm file reads GOOGLE_* at import time; without them the Google provider stays disabled.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:google-client-id"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:google-client-secret"]))
+{
+    var googleClientId = builder.AddParameter("google-client-id");
+    var googleClientSecret = builder.AddParameter("google-client-secret", secret: true);
+    keycloak
+        .WithEnvironment("GOOGLE_ENABLED", "true")
+        .WithEnvironment("GOOGLE_CLIENT_ID", googleClientId)
+        .WithEnvironment("GOOGLE_CLIENT_SECRET", googleClientSecret);
+}
 
 var realmUrl = ReferenceExpression.Create($"{keycloak.GetEndpoint("http")}/realms/builderpro");
 

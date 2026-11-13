@@ -3,7 +3,7 @@
   "displayName": "BuilderPro (local dev)",
   "enabled": true,
   "sslRequired": "external",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
@@ -237,10 +237,36 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"tenant_id\", \"displayName\": \"Tenant\", \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"User metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\"}]}"
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"validations\": {\"length\": {\"max\": 255}, \"person-name-prohibited-characters\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"tenant_id\", \"displayName\": \"Tenant\", \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"phone\", \"displayName\": \"Mobile phone\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"contact\", \"validations\": {\"length\": {\"max\": 20}, \"pattern\": {\"pattern\": \"^\\\\+?[0-9 ().-]{7,20}$\", \"error-message\": \"Enter a phone number like +1 555 123 4567.\"}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"tel\", \"inputType\": \"html5-tel\", \"inputHelperTextAfter\": \"Used only to reach you about your project, as you choose below.\"}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"contactConsent\", \"displayName\": \"How may we contact you about your project?\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"contact\", \"required\": {\"roles\": [\"user\"]}, \"multivalued\": false, \"validations\": {\"options\": {\"options\": [\"call\", \"text\", \"both\", \"none\"]}}, \"annotations\": {\"inputType\": \"select-radiobuttons\", \"inputOptionLabels\": {\"call\": \"Phone calls\", \"text\": \"Text messages (SMS)\", \"both\": \"Calls and texts\", \"none\": \"Email only, no calls or texts\"}, \"inputHelperTextAfter\": \"Message and data rates may apply. You can change this any time in your account.\"}}, {\"name\": \"contactHours\", \"displayName\": \"Best time to reach you\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"contact\", \"required\": {\"roles\": [\"user\"]}, \"multivalued\": false, \"defaultValue\": \"business\", \"validations\": {\"options\": {\"options\": [\"business\", \"evenings\", \"weekends\", \"anytime\"]}}, \"annotations\": {\"inputType\": \"select\", \"inputOptionLabels\": {\"business\": \"Business hours (Mon-Fri, 9am-5pm)\", \"evenings\": \"Weekday evenings (5pm-8pm)\", \"weekends\": \"Weekends (9am-5pm)\", \"anytime\": \"Any time during business or evening hours\"}}}, {\"name\": \"addressLine1\", \"displayName\": \"Street address\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"length\": {\"max\": 120}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"address-line1\"}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"addressLine2\", \"displayName\": \"Apartment, suite (optional)\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"length\": {\"max\": 120}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"address-line2\"}}, {\"name\": \"city\", \"displayName\": \"City\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"length\": {\"max\": 80}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"address-level2\"}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"region\", \"displayName\": \"State / province\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"length\": {\"max\": 80}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"address-level1\"}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"postalCode\", \"displayName\": \"ZIP / postal code\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"length\": {\"max\": 12}, \"pattern\": {\"pattern\": \"^[A-Za-z0-9 -]{3,12}$\", \"error-message\": \"Enter a valid ZIP or postal code.\"}}, \"multivalued\": false, \"annotations\": {\"inputTypeAutocomplete\": \"postal-code\"}, \"required\": {\"roles\": [\"user\"]}}, {\"name\": \"country\", \"displayName\": \"Country\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"group\": \"address\", \"validations\": {\"options\": {\"options\": [\"US\", \"CA\"]}}, \"multivalued\": false, \"annotations\": {\"inputType\": \"select\", \"inputOptionLabels\": {\"US\": \"United States\", \"CA\": \"Canada\"}, \"inputTypeAutocomplete\": \"country\"}, \"required\": {\"roles\": [\"user\"]}, \"defaultValue\": \"US\"}], \"groups\": [{\"name\": \"user-metadata\", \"displayHeader\": \"User metadata\", \"displayDescription\": \"Attributes, which refer to user metadata\"}, {\"name\": \"address\", \"displayHeader\": \"Project address\", \"displayDescription\": \"Where the work will happen\"}, {\"name\": \"contact\", \"displayHeader\": \"Contact preferences\", \"displayDescription\": \"How and when the store may reach you\"}]}"
           ]
         }
       }
     ]
-  }
+  },
+  "registrationEmailAsUsername": false,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginTheme": "builderpro",
+  "identityProviders": [
+    {
+      "alias": "google",
+      "displayName": "Google",
+      "providerId": "google",
+      "enabled": "${GOOGLE_ENABLED:false}",
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "${GOOGLE_CLIENT_ID:not-configured}",
+        "clientSecret": "${GOOGLE_CLIENT_SECRET:not-configured}",
+        "defaultScope": "openid profile email",
+        "syncMode": "IMPORT",
+        "guiOrder": "1"
+      }
+    }
+  ]
 }

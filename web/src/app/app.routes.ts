@@ -15,5 +15,12 @@ export const routes: Routes = [
     canActivate: [autoLoginPartialRoutesGuard],
     loadComponent: () => import('./features/catalog/catalog.page').then((m) => m.CatalogPage),
   },
+  // Store sign-up link (public): /signup?store=acme -> Create account -> /welcome joins the store.
+  { path: 'signup', loadComponent: () => import('./features/signup/signup.page').then((m) => m.SignupPage) },
+  {
+    path: 'welcome',
+    canActivate: [autoLoginPartialRoutesGuard],
+    loadComponent: () => import('./features/signup/welcome.page').then((m) => m.WelcomePage),
+  },
   { path: '**', redirectTo: '' },
 ];

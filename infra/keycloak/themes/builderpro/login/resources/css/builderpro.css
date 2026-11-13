@@ -1,0 +1,147 @@
+/*
+ * BuilderPro "Navy & Sand" for the Keycloak login, sign-up and password pages.
+ * Same tokens as web/src/styles.css (keep them in sync). Only CSS: Keycloak's keycloak.v2
+ * templates are inherited unchanged.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap");
+
+:root {
+  --bp-bg: #f5f1e8;
+  --bp-surface: #fffdf8;
+  --bp-surface-muted: #ede6d6;
+  --bp-border: #e3dccc;
+  --bp-border-strong: #d6cdb8;
+  --bp-ink: #14213d;
+  --bp-ink-muted: #5e5a4f;
+  --bp-accent: #1e3a8a;
+  --bp-accent-hover: #172b66;
+  --bp-accent-soft: #e3e8f3;
+  --bp-on-accent: #ffffff;
+  --bp-warning-bg: #fdf1dc;
+  --bp-warning-ink: #7a4b00;
+  --bp-radius-md: 12px;
+  --bp-radius-lg: 16px;
+  --bp-font-body: Inter, system-ui, sans-serif;
+  --bp-font-heading: "Space Grotesk", Inter, sans-serif;
+
+  /* PatternFly 5 variables -> BuilderPro tokens */
+  --pf-v5-global--primary-color--100: var(--bp-accent);
+  --pf-v5-global--primary-color--200: var(--bp-accent-hover);
+  --pf-v5-global--link--Color: var(--bp-accent);
+  --pf-v5-global--link--Color--hover: var(--bp-accent-hover);
+  --pf-v5-global--Color--100: var(--bp-ink);
+  --pf-v5-global--Color--200: var(--bp-ink-muted);
+  --pf-v5-global--BorderColor--100: var(--bp-border-strong);
+  --pf-v5-global--FontFamily--text: var(--bp-font-body);
+  --pf-v5-global--FontFamily--heading: var(--bp-font-heading);
+  --pf-v5-global--FontFamily--redhatfont--text: var(--bp-font-body);
+  --pf-v5-global--FontFamily--redhatfont--heading: var(--bp-font-heading);
+  --keycloak-card-top-color: var(--bp-accent);
+  --keycloak-logo-url: url("../img/logo.svg");
+  --keycloak-logo-height: 40px;
+  --keycloak-logo-width: 240px;
+}
+
+/* Page: sand background, no Keycloak artwork. */
+.login-pf body,
+body {
+  background: var(--bp-bg) !important;
+  color: var(--bp-ink);
+  font-family: var(--bp-font-body);
+}
+
+.pf-v5-c-login__header {
+  padding-top: 2.5rem;
+}
+
+#kc-header-wrapper {
+  color: var(--bp-ink) !important;
+  font-family: var(--bp-font-heading);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+/* Card */
+.pf-v5-c-login__main {
+  background: var(--bp-surface);
+  border: 1px solid var(--bp-border);
+  border-radius: var(--bp-radius-lg);
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.pf-v5-c-login__main-header {
+  border-top: 4px solid var(--bp-accent);
+}
+
+.pf-v5-c-login__main-header h1,
+.pf-v5-c-title {
+  font-family: var(--bp-font-heading);
+  color: var(--bp-ink);
+}
+
+/* Inputs and buttons: 44 px minimum targets */
+.pf-v5-c-form-control {
+  min-height: 44px;
+  border-radius: var(--bp-radius-md);
+  background: var(--bp-surface);
+}
+
+.pf-v5-c-button {
+  min-height: 44px;
+  border-radius: var(--bp-radius-md);
+  font-weight: 600;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  min-height: 48px;
+  background: var(--bp-accent);
+  color: var(--bp-on-accent);
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background: var(--bp-accent-hover);
+}
+
+/* "Continue with Google" and other secondary buttons */
+.pf-v5-c-button.pf-m-secondary,
+#kc-social-providers .pf-v5-c-button,
+#kc-social-providers a {
+  background: var(--bp-surface);
+  color: var(--bp-ink);
+  border: 1px solid var(--bp-border-strong);
+  min-height: 44px;
+  border-radius: var(--bp-radius-md);
+}
+
+#kc-social-providers a:hover,
+.pf-v5-c-button.pf-m-secondary:hover {
+  background: var(--bp-surface-muted);
+}
+
+.pf-v5-c-button.pf-m-secondary::after {
+  border: 0; /* PatternFly draws the secondary border with a pseudo-element */
+}
+
+/* Errors read as warnings, not alarms */
+.pf-v5-c-alert.pf-m-danger,
+.pf-v5-c-alert.pf-m-warning {
+  background: var(--bp-warning-bg);
+  color: var(--bp-warning-ink);
+  border-radius: var(--bp-radius-md);
+}
+
+/* Visible focus everywhere */
+:focus-visible {
+  outline: 2px solid var(--bp-accent) !important;
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--bp-accent);
+}
+
+a:hover {
+  color: var(--bp-accent-hover);
+}

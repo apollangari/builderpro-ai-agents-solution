@@ -17,5 +17,16 @@ All passwords: `Passw0rd!`. **Dev only.** These are throwaway credentials for a 
 User ids are **fixed** in the realm file so the Identity service can seed memberships for them
 (a membership is keyed by issuer + subject; see `ExternalIdentityKey`).
 
+## Sign-up and Google (1e)
+
+- **Create account** is on the login page; a store's link opens it directly: http://localhost:4200/signup?store=acme
+- Sign-up asks for name, email, password, **phone**, **contact consent** (calls / texts / both / email only,
+  no default), **contact hours** (default Business hours) and the **project address**. Rules live in the realm's
+  user profile (`components` in the realm file).
+- **Continue with Google** appears only when the AppHost has `Parameters:google-client-id` and
+  `Parameters:google-client-secret` in user secrets (see docs/learn/01e-signup-login.md).
+- Theme: `themes/builderpro` (Navy & Sand CSS on Keycloak's `keycloak.v2` templates), bind-mounted by the AppHost.
+- No SMTP locally yet: email verification is off and "Forgot password?" can't send mail.
+
 Changed the realm file? The container has no persistent volume, so it re-imports on every start.
 Stop and start the AppHost.

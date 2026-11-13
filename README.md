@@ -58,6 +58,7 @@ docs/                           setup, branching, learning guides, ADRs
 | 2d | Quote API: catalog prices, domain totals, scopes | ✅ | [docs/learn/02d-quote-api.md](docs/learn/02d-quote-api.md) |
 | 2e | Dapper stores + real-Postgres store tests | ✅ | [docs/roadmap.md](docs/roadmap.md) |
 | 2f | Redis for hot reads (tenant lookup, product lists) | ✅ | [docs/learn/02f-redis-hot-reads.md](docs/learn/02f-redis-hot-reads.md) |
+| 1e | Sign-up via store link, branded login, Google | ✅ | [docs/learn/01e-signup-login.md](docs/learn/01e-signup-login.md) |
 
 ## How we work
 

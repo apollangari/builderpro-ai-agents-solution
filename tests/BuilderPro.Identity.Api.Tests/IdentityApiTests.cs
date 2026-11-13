@@ -46,6 +46,11 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>
         builder.UseSetting("Auth:RequireHttpsMetadata", "false");
         builder.UseSetting("ConnectionStrings:identitydb", "Host=unused.test;Database=identitydb");
         builder.UseSetting("Identity:SeedDevMemberships", "false");
+        // A third store whose sign-up link is closed (appended to the stores in appsettings.json).
+        builder.UseSetting("Identity:Stores:2:Id", "closed");
+        builder.UseSetting("Identity:Stores:2:TenantId", "t-closed");
+        builder.UseSetting("Identity:Stores:2:Name", "Closed Store");
+        builder.UseSetting("Identity:Stores:2:SignupEnabled", "false");
         builder.ConfigureTestServices(s =>
         {
             s.RemoveAll<IMembershipStore>();

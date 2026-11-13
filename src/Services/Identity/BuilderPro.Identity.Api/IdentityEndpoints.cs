@@ -27,6 +27,9 @@ public static class IdentityEndpoints
         api.MapGet("/me", GetMeAsync)
             .WithSummary("The caller as the PLATFORM sees them: tenant resolved from memberships, not just the token.");
 
+        api.MapPost("/onboarding", Onboarding.JoinAsync)
+            .WithSummary("Join a store through its public sign-up link: creates a CUSTOMER membership (decision 1e).");
+
         var admin = api.MapGroup("/memberships").RequireAuthorization(AdminPolicy);
         admin.MapGet("/", ListAsync);
         admin.MapPost("/", UpsertAsync);
