@@ -2,20 +2,20 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router, provideRouter } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { NewQuotePage } from './new-quote.page';
 
 const CATEGORIES = [
   { id: 'countertops', name: 'Countertops', defaultUnit: 'sqft', scene: 'kitchen', attributes: [], typical: null },
   { id: 'roofing', name: 'Roofing', defaultUnit: 'bundle', scene: 'roof', attributes: [], typical: null },
-  { id: 'sheds', name: 'Sheds', defaultUnit: 'each', scene: 'yard', attributes: [], typical: null },
   { id: 'labour', name: 'Installation & labour', defaultUnit: 'hour', scene: 'none', attributes: [], typical: null },
 ];
 const product = (sku: string, category: string, listPrice: number) => ({
-  sku, name: sku, description: null, unit: 'sqft', listPrice, currency: 'USD', category, imageUrl: null, attributes: {},
+  sku, name: sku, description: null, unit: 'sqft', listPrice, currency: 'USD', category, imageUrl: `/products/${sku}.svg`, attributes: {},
 });
 
-describe('NewQuotePage (2n-a)', () => {
+describe('NewQuotePage (one step per screen)', () => {
   let http: HttpTestingController;
 
   function setup(postalCode: string | null) {
@@ -24,12 +24,13 @@ describe('NewQuotePage (2n-a)', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideRouter([]),
         { provide: OidcSecurityService, useValue: { userData: signal({ userData: postalCode ? { postal_code: postalCode } : {} }) } },
       ],
     });
     http = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(NewQuotePage);
-    return { fixture, el: fixture.nativeElement as HTMLElement };
+    return fixture.nativeElement as HTMLElement;
   }
 
   afterEach(() => http.verify());
@@ -43,58 +44,77 @@ describe('NewQuotePage (2n-a)', () => {
     el.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!.click();
     await settle();
   };
-
-  it('confirms the sign-up ZIP, then shows only the types and prices sold there', async () => {
-    const { el } = setup('62701');
+  async function categoriesLoaded(el: HTMLElement) {
     await settle();
     http.expectOne('/api/catalog/categories').flush(CATEGORIES);
     await settle();
+    return el;
+  }
+  async function served(el: HTMLElement, zip: string, products: unknown[]) {
+    http.expectOne(`/api/catalog/service-area?zip=${zip}`).flush({ zip, served: true });
+    await settle();
+    http.expectOne(`/api/catalog/products?zip=${zip}`).flush(products);
+    await settle();
+  }
 
-    expect(el.querySelector('[data-testid="step-zip"]')?.textContent).toContain('Is this project at ZIP 62701?');
+  it('ZIP, then the types sold there, then product: one screen each, and choosing starts the project', async () => {
+    const el = await categoriesLoaded(setup('62701'));
+
+    // 1. Only the ZIP card, with one main button.
+    expect(el.querySelector('[data-testid="step-category"]')).toBeNull();
+    expect(el.querySelector('[data-testid="zip-yes"]')?.textContent).toContain('Use ZIP 62701');
     await click(el, 'zip-yes');
+    await served(el, '62701', [product('CT-QTZ', 'countertops', 89), product('LABOR', 'labour', 65)]);
 
-    http.expectOne('/api/catalog/service-area?zip=62701').flush({ zip: '62701', served: true });
-    await settle();
-    http.expectOne('/api/catalog/products?zip=62701').flush([product('CT-QTZ', 'countertops', 89), product('ROOF-ARCH', 'roofing', 42.97), product('LABOR', 'labour', 65)]);
-    await settle();
-
-    expect(el.querySelector('[data-testid="zip-chosen"]')?.textContent).toContain('62701');
-    expect(el.querySelector('[data-testid="type-countertops"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="type-sheds"]')).toBeNull(); // not sold in this ZIP
-    expect(el.querySelector('[data-testid="type-labour"]')).toBeNull(); // not a project type on its own
-
+    // 2. Only types sold in that ZIP (no roofing here), with pictures; labour isn't a project type.
+    expect(el.querySelector('[data-testid="step-zip"]')).toBeNull();
+    expect(el.querySelector('[data-testid="type-countertops"] img')).not.toBeNull();
+    expect(el.querySelector('[data-testid="type-roofing"]')).toBeNull();
+    expect(el.querySelector('[data-testid="type-labour"]')).toBeNull();
     await click(el, 'type-countertops');
+
+    // 3. Only that type's products, at the ZIP's price.
     const cards = el.querySelectorAll('[data-testid^="product-"]');
     expect(cards.length).toBe(1);
     expect(cards[0].querySelector('[data-testid="price"]')?.textContent).toContain('$89.00');
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    await click(el, 'choose-CT-QTZ');
+    const create = http.expectOne((r) => r.url === '/api/projects' && r.method === 'POST');
+    expect(create.request.body).toEqual({ zip: '62701', title: 'Countertops · CT-QTZ' });
+    create.flush({ id: 'p1' });
+    await settle();
+    const save = http.expectOne((r) => r.url === '/api/projects/p1/answers' && r.method === 'PUT');
+    expect(save.request.body.sku).toBe('CT-QTZ');
+    save.flush({ id: 'p1' });
+    await settle();
+    expect(navigate).toHaveBeenCalledWith(['/projects', 'p1']);
   });
 
-  it('"No" asks for the project ZIP and explains an unserved one', async () => {
-    const { el } = setup('62701');
-    await settle();
-    http.expectOne('/api/catalog/categories').flush(CATEGORIES);
-    await settle();
-
+  it('"Use a different ZIP" explains an unserved one; Back on products returns to the types', async () => {
+    const el = await categoriesLoaded(setup('62701'));
     await click(el, 'zip-no');
     const input = el.querySelector<HTMLInputElement>('[data-testid="zip-input"]')!;
     input.value = '90210';
     input.dispatchEvent(new Event('input'));
     await settle();
     await click(el, 'zip-continue');
-
     http.expectOne('/api/catalog/service-area?zip=90210').flush({ zip: '90210', served: false });
     await settle();
-
     expect(el.querySelector('[data-testid="zip-not-served"]')?.textContent).toContain("We don't serve ZIP 90210");
-    expect(el.querySelector('[data-testid="step-category"]')).toBeNull();
+
+    input.value = '60601';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    await click(el, 'zip-continue');
+    await served(el, '60601', [product('CT-QTZ', 'countertops', 99.68)]);
+    await click(el, 'type-countertops');
+    await click(el, 'back');
+    expect(el.querySelector('[data-testid="step-category"]')).not.toBeNull();
   });
 
   it('without a ZIP on the account, asks for one straight away', async () => {
-    const { el } = setup(null);
-    await settle();
-    http.expectOne('/api/catalog/categories').flush(CATEGORIES);
-    await settle();
-
+    const el = await categoriesLoaded(setup(null));
     expect(el.querySelector('[data-testid="zip-yes"]')).toBeNull();
     expect(el.querySelector('[data-testid="zip-input"]')).not.toBeNull();
   });

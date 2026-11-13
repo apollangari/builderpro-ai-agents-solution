@@ -41,49 +41,54 @@ import { ConciergePanelComponent } from './concierge-panel.component';
           <bp-concierge-panel class="chat" [projectId]="p.id" [askText]="askText()" (projectChanged)="refresh()" />
 
           <div class="work">
-            <div class="cards">
-              <section class="card" data-testid="layout-card">
-                <div class="card-row">
-                  <h2 class="card-title">Layout</h2>
-                  @if (p.stage !== 'install') { <span class="badge">Estimated</span> }
-                </div>
-                @if (sketch().rects.length) {
-                  <svg [attr.viewBox]="'-6 -6 ' + (sketch().width + 12) + ' ' + (sketch().height + 12)" class="sketch" role="img"
-                       [attr.aria-label]="'Countertop layout, about ' + (p.preview?.measurement?.values?.['sqft'] ?? '') + ' square feet'">
-                    @for (r of sketch().rects; track $index) {
-                      <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h" rx="2" [class.island]="r.kind === 'island'" />
-                    }
-                  </svg>
-                } @else {
-                  <p class="muted">Your layout appears once the measurements are in.</p>
-                }
-                @if (p.preview; as q) {
-                  <p class="muted" data-testid="layout-summary">
-                    @if (q.measurement.values['sqft'] !== undefined) { ≈ {{ q.measurement.values['sqft'] | number: '1.0-2' }} sq ft }
-                    @if (q.measurement.values['edgeFt']) { · {{ q.measurement.values['edgeFt'] }} ft of edge }
-                  </p>
-                }
-                <p class="muted small">Final numbers are confirmed at the measurement visit.</p>
-              </section>
+            <p class="selection" data-testid="selection-card">
+              @if (p.preview; as q) {
+                <strong>{{ q.lines[0]?.name }}</strong>
+                @for (l of optionLines(q.lines); track l.sku) { <span class="muted"> · {{ l.name }}</span> }
+              }
+            </p>
 
-              <section class="card" data-testid="selection-card">
-                <h2 class="card-title">Your selection</h2>
-                @if (p.preview; as q) {
-                  <p class="sel-name">{{ q.lines[0]?.name }}</p>
-                  @for (l of optionLines(q.lines); track l.sku) { <p class="muted small">{{ l.name }}</p> }
-                } @else {
-                  <p class="muted">No product yet.</p>
-                }
-                <a routerLink="/quote/new" class="link">Start another project</a>
-              </section>
+            <!-- One step per screen (owner): Measure, Options, Protection, Quote -->
+            <div class="tabs" role="tablist" aria-label="Project steps" data-testid="page-tabs">
+              @for (pg of pages(); track pg.id) {
+                <button type="button" role="tab" class="tab" [class.active]="page() === pg.id" [attr.aria-selected]="page() === pg.id"
+                        (click)="page.set(pg.id)" [disabled]="pg.id !== 'quote' && locked()" [attr.data-testid]="'tab-' + pg.id">{{ pg.label }}</button>
+              }
             </div>
 
-            @if (p.sku && p.stage !== 'deposit') {
-              <bp-guided-steps [zip]="p.zip" [sku]="p.sku" [projectId]="p.id" [project]="p" (projectChange)="project.set($event)" />
-            }
+            <div class="screen" [class.with-sketch]="page() === 'measure'">
+              @if (p.sku && !locked()) {
+                <bp-guided-steps [zip]="p.zip" [sku]="p.sku" [projectId]="p.id" [project]="loadedValue()" [page]="page()" (projectChange)="project.set($event)" (screens)="screens.set($event)" />
+              }
 
-            <!-- The quote card -->
-            <section class="card quote" data-testid="quote-card">
+              @if (page() === 'measure') {
+                <section class="card" data-testid="layout-card">
+                  <div class="card-row">
+                    <h2 class="card-title">Layout</h2>
+                    <span class="badge">Estimated</span>
+                  </div>
+                  @if (sketch().rects.length) {
+                    <svg [attr.viewBox]="'-6 -6 ' + (sketch().width + 12) + ' ' + (sketch().height + 12)" class="sketch" role="img"
+                         [attr.aria-label]="'Countertop layout, about ' + (p.preview?.measurement?.values?.['sqft'] ?? '') + ' square feet'">
+                      @for (r of sketch().rects; track $index) {
+                        <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h" rx="2" [class.island]="r.kind === 'island'" />
+                      }
+                    </svg>
+                  } @else {
+                    <p class="muted">Your layout appears once the measurements are in.</p>
+                  }
+                  @if (p.preview; as q) {
+                    <p class="muted" data-testid="layout-summary">
+                      @if (q.measurement.values['sqft'] !== undefined) { ≈ {{ q.measurement.values['sqft'] | number: '1.0-2' }} sq ft }
+                      @if (q.measurement.values['edgeFt']) { · {{ q.measurement.values['edgeFt'] }} ft of edge }
+                    </p>
+                  }
+                  <p class="muted small">Final numbers are confirmed at the measurement visit.</p>
+                </section>
+              }
+
+              @if (page() === 'quote') {
+              <section class="card quote" data-testid="quote-card">
               @if (p.quote; as q) {
                 <div class="card-row">
                   <h2 class="card-title" data-testid="quote-number">Quote Q-{{ q.number }}</h2>
@@ -120,13 +125,24 @@ import { ConciergePanelComponent } from './concierge-panel.component';
                   <p>Everything's answered: {{ p.preview!.total | currency: p.preview!.currency }} with tax.</p>
                   <button type="button" class="btn btn-primary" (click)="issue()" [disabled]="busy()" data-testid="get-quote">Get my quote</button>
                 } @else {
-                  <p class="muted">Answer the steps above (or tell the concierge) and your numbered quote appears here.</p>
+                  <p class="muted" data-testid="quote-missing">Still to answer: {{ missingSteps() }}. Use Back, or tell the concierge.</p>
                 }
               }
               @if (actionError()) {
                 <div class="warning" role="alert" data-testid="action-error"><span>{{ actionError() }}</span></div>
               }
-            </section>
+              </section>
+              }
+            </div>
+
+            @if (!locked()) {
+              <div class="pager">
+                <button type="button" class="btn" (click)="move(-1)" [disabled]="pageIndex() === 0" data-testid="page-back">Back</button>
+                @if (pageIndex() < pages().length - 1) {
+                  <button type="button" class="btn btn-primary" (click)="move(1)" data-testid="page-next">Next: {{ pages()[pageIndex() + 1].label }}</button>
+                }
+              </div>
+            }
           </div>
         </div>
       } @else {
@@ -143,7 +159,15 @@ import { ConciergePanelComponent } from './concierge-panel.component';
     .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
     @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
     .work { display: grid; gap: 1rem; }
-    .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+    .selection { margin: 0; }
+    .tabs { display: flex; gap: .35rem; flex-wrap: wrap; border-bottom: 1px solid var(--bp-border); }
+    .tab { min-height: var(--bp-tap); padding: 0 1rem; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--bp-ink-muted); font: inherit; cursor: pointer; }
+    .tab.active { color: var(--bp-accent); border-bottom-color: var(--bp-accent); font-weight: 600; }
+    .tab:disabled { opacity: .5; cursor: default; }
+    .screen { display: grid; gap: 1rem; align-items: start; }
+    .screen.with-sketch { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    @media (max-width: 1100px) { .screen.with-sketch { grid-template-columns: 1fr; } }
+    .pager { display: flex; justify-content: space-between; gap: .6rem; }
     .card-row { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
     .sketch { width: 100%; max-height: 12rem; }
     .sketch rect { fill: var(--bp-surface-muted); stroke: var(--bp-ink-muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -173,6 +197,30 @@ export class WorkspacePage {
   protected readonly project = linkedSignal<Project | null>(() => (this.loaded.hasValue() ? this.loaded.value()! : null));
 
   protected readonly stageIndex = computed(() => Math.max(0, STAGES.findIndex((s) => s.id === this.project()?.stage)));
+
+  /** One screen per step (owner): Measure, then one per option step of this product, then Quote. */
+  protected readonly screens = signal<{ id: string; label: string }[]>([{ id: 'measure', label: 'Measure' }]);
+  protected readonly pages = computed(() => [...this.screens(), { id: 'quote', label: 'Quote' }]);
+  /** The project as last READ from the server: the steps restore from it (e.g. after the concierge saved). */
+  protected readonly loadedValue = computed(() => (this.loaded.hasValue() ? this.loaded.value()! : null));
+  private readonly stage = computed(() => this.project()?.stage ?? null);
+  /** Changes screen only when the stage changes (a concierge save in the same stage keeps you where you are). */
+  protected readonly page = linkedSignal<string | null, string>({
+    source: this.stage,
+    computation: (stage) => (stage === 'quote' || stage === 'deposit' ? 'quote' : 'measure'),
+  });
+  protected readonly pageIndex = computed(() => this.pages().findIndex((p) => p.id === this.page()));
+  /** Accepted: answers can't change, only the quote is shown. */
+  protected readonly locked = computed(() => this.project()?.stage === 'deposit');
+  protected readonly missingSteps = computed(() => {
+    const missing = this.project()?.preview?.missing ?? [];
+    return missing.length ? missing.join(', ') : 'the measurements';
+  });
+
+  protected move(delta: number): void {
+    const next = this.pages()[this.pageIndex() + delta];
+    if (next) this.page.set(next.id);
+  }
   protected readonly sketch = computed(() => layoutSketch(this.project()?.answers));
   protected readonly askText = signal<string | null>(null);
 
@@ -199,6 +247,7 @@ export class WorkspacePage {
 
   protected issue(): void {
     this.action.set({ kind: 'quote', n: ++this.n });
+    this.page.set('quote');
   }
 
   protected accept(): void {

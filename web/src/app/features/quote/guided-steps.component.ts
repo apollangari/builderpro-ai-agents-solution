@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -31,21 +31,19 @@ const LAYOUTS = [
       <div class="warning" role="alert"><span>{{ describe(options.error()) }}</span></div>
     } @else if (opts(); as o) {
       <!-- Step 4: measurements -->
+      @if (page() === 'all' || page() === 'measure') {
       <section class="card step" data-testid="step-measure">
         <h2 class="card-title">Measurements</h2>
         @switch (o.measure) {
           @case ('countertop') {
-            <p class="muted">Split the countertop into rectangles and enter each one. A standard countertop is 25 in deep.</p>
-            <fieldset>
-              <legend>Layout</legend>
-              <div class="chips">
-                @for (l of layouts; track l.id) {
-                  <button type="button" class="btn" [class.btn-primary]="form().countertop.layout === l.id" [attr.aria-pressed]="form().countertop.layout === l.id"
-                          (click)="setLayout(l.id)">{{ l.label }}</button>
-                }
-              </div>
-            </fieldset>
+            <label class="inline">Layout
+              <select [value]="form().countertop.layout" (change)="setLayout($any($event.target).value)" data-testid="layout-select">
+                @for (l of layouts; track l.id) { <option [value]="l.id">{{ l.label }}</option> }
+              </select>
+            </label>
+            <p class="muted small">Split each run into rectangles. A standard countertop is 25 in deep.</p>
             @for (part of parts; track part.key) {
+              @if (part.key === 'countertop' || form().countertop[part.key].length) {
               <fieldset [attr.data-testid]="'part-' + part.key">
                 <legend>{{ part.label }}</legend>
                 @for (s of form().countertop[part.key]; track $index; let i = $index) {
@@ -63,7 +61,12 @@ const LAYOUTS = [
                 }
                 <button type="button" class="btn" (click)="addSection(part.key)" [attr.data-testid]="'add-' + part.key">Add {{ part.label.toLowerCase() }} section</button>
               </fieldset>
+              }
             }
+            <div class="row">
+              @if (!form().countertop.island.length) { <button type="button" class="btn" (click)="addSection('island')" data-testid="add-island">Add an island or peninsula</button> }
+              @if (!form().countertop.backsplash.length) { <button type="button" class="btn" (click)="addSection('backsplash')" data-testid="add-backsplash">Add a backsplash</button> }
+            </div>
           }
           @case ('roof') {
             <div class="row">
@@ -112,12 +115,14 @@ const LAYOUTS = [
         }
       </section>
 
+      }
+
       <!-- Steps 5 and 6: options, then protection -->
       @for (stage of stages; track stage.step) {
-        @if (groupsFor(stage.step).length) {
+        @if (shownGroups(stage.step).length) {
           <section class="card step" [attr.data-testid]="'step-' + stage.step">
-            <h2 class="card-title">{{ stage.title }}</h2>
-            @for (g of groupsFor(stage.step); track g.id) {
+            @if (page() === 'all') { <h2 class="card-title">{{ stage.title }}</h2> }
+            @for (g of shownGroups(stage.step); track g.id) {
               <fieldset [attr.data-testid]="'group-' + g.id">
                 <legend>{{ g.label }} @if (g.required) { <span class="muted">(required)</span> }</legend>
                 @if (g.help) { <p class="muted">{{ g.help }}</p> }
@@ -166,7 +171,7 @@ const LAYOUTS = [
       }
 
       <!-- Step 7: the quote (in a project, the workspace shows the quote card instead) -->
-      @if (!projectId() || showPreview()) {
+      @if ((!projectId() || showPreview()) && page() === 'all') {
       <section class="card step quote" data-testid="step-quote">
         <h2 class="card-title">Your quote <span class="muted">· ZIP {{ zip() }}</span></h2>
         @if (pq(); as q) {
@@ -218,6 +223,8 @@ const LAYOUTS = [
     legend { font-weight: 600; padding: 0 .35rem; }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
     .chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .inline { display: flex; align-items: center; gap: .6rem; font-weight: 600; }
+    .small { font-size: .85rem; margin: 0; }
     input.num { width: 4.5rem; min-height: var(--bp-tap); padding: 0 .5rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; }
     input.num.wide { width: 7rem; }
     select { min-height: var(--bp-tap); border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; padding: 0 .5rem; }
@@ -225,7 +232,7 @@ const LAYOUTS = [
     .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .6rem; }
     .choice { display: grid; gap: .25rem; align-content: start; min-height: var(--bp-tap); padding: .6rem .75rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); cursor: pointer; }
     .choice.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); }
-    .choice img { width: 100%; height: auto; }
+    .choice img { width: 100%; height: 4.5rem; object-fit: contain; }
     .choice.qty { cursor: default; }
     .stepper { display: flex; align-items: center; gap: .5rem; }
     .stepper output { min-width: 2ch; text-align: center; font-weight: 700; }
@@ -247,6 +254,10 @@ export class GuidedStepsComponent {
   readonly project = input<Project | null>(null);
   /** In a project: show the live preview card too (the workspace usually shows its own quote card). */
   readonly showPreview = input(false);
+  /** Which screen to show: everything (Start a project before 2n-f), or one step per screen (workspace). */
+  readonly page = input<string>('all');
+  /** The screens this product needs, for the workspace's tabs: Measure, then one per option step. */
+  readonly screens = output<{ id: string; label: string }[]>();
   readonly projectChange = output<Project>();
 
   private readonly router = inject(Router);
@@ -326,20 +337,28 @@ export class GuidedStepsComponent {
   });
 
   constructor() {
-    // Project mode: once the steps are known, put the saved answers back into the form.
+    // Project mode: put the saved answers into the form when the steps are known, and again whenever
+    // the project is re-read from the server (e.g. the concierge changed it), so we never overwrite it.
     effect(() => {
       const o = this.opts();
-      if (!o || this.restored()) return;
       const p = this.project();
-      if (this.projectId() && p) {
-        this.form.set(formFromAnswers(o.measure, p.answers));
-        this.answers.set(answersFromChoices(o.groups, p.answers.choices));
-        this.restoredBody = JSON.stringify(this.body());
-      }
-      this.restored.set(true);
+      if (!o) return;
+      untracked(() => {
+        if (this.projectId() && p) {
+          this.form.set(formFromAnswers(o.measure, p.answers));
+          this.answers.set(answersFromChoices(o.groups, p.answers.choices));
+          // A new project has no measurements yet: save the starting ones so it's priced right away.
+          this.restoredBody = p.answers.measurements ? JSON.stringify(this.body()) : null;
+        }
+        this.restored.set(true);
+      });
     });
     effect(() => {
       if (this.projectSave.hasValue()) this.projectChange.emit(this.projectSave.value()!);
+    });
+    effect(() => {
+      const o = this.opts();
+      if (o) this.screens.emit([{ id: 'measure', label: 'Measure' }, ...o.groups.map((g) => ({ id: 'group:' + g.id, label: g.label }))]);
     });
     // Saved: go to My quotes, where it's listed with its ZIP.
     effect(() => {
@@ -395,6 +414,11 @@ export class GuidedStepsComponent {
   // ---- answers ----
   protected groupsFor(step: OptionGroup['step']): OptionGroup[] {
     return this.opts()?.groups.filter((g) => g.step === step) ?? [];
+  }
+  /** On a one-step screen (group:<id>) only that step; on 'all' every step. */
+  protected shownGroups(step: OptionGroup['step']): OptionGroup[] {
+    const page = this.page();
+    return this.groupsFor(step).filter((g) => page === 'all' || page === 'group:' + g.id);
   }
   protected singleSku(group: string): string | null | undefined {
     const a = this.answers()[group];

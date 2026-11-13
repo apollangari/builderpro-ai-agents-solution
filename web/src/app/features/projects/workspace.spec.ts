@@ -54,6 +54,13 @@ describe('WorkspacePage (2n-f)', () => {
     expect(el.querySelectorAll('[data-testid="layout-card"] rect').length).toBe(3);
     expect(el.querySelector('[data-testid="layout-summary"]')?.textContent).toContain('55.5 sq ft');
 
+    // One screen at a time: Measure shows the sketch, not the quote.
+    expect(el.querySelector('[data-testid="quote-card"]')).toBeNull();
+    expect([...el.querySelectorAll('[data-testid="page-tabs"] [role="tab"]')].map((t) => t.textContent?.trim())).toEqual(['Measure', 'Quote']);
+    el.querySelector<HTMLButtonElement>('[data-testid="tab-quote"]')!.click();
+    await settle();
+    expect(el.querySelector('[data-testid="page-next"]')).toBeNull(); // last screen
+
     el.querySelector<HTMLButtonElement>('[data-testid="get-quote"]')!.click();
     await settle();
     http.expectOne((r) => r.url === '/api/projects/p1/quote' && r.method === 'POST').flush(project({ stage: 'quote', quote: issued }));

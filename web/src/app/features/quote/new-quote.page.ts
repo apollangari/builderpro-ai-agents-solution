@@ -14,165 +14,168 @@ interface ServiceArea {
   served: boolean;
 }
 
+type Step = 'zip' | 'type' | 'product';
+
 /**
- * Guided quote, step 1 (2n-a): confirm the project ZIP, pick the project type, pick a product.
+ * Start a project, ONE step per screen (owner, 2n-f): 1. ZIP (the account's, or another), 2. project
+ * type (only types the store sells in that ZIP), 3. product at that ZIP's price. Choosing a product creates the project and opens
+ * its workspace (measure, options, protection, quote).
  *
- *  - The ZIP starts as the one from the customer's sign-up address (the postal_code claim);
- *    "No" asks for the project's ZIP. Nothing is written to the profile.
- *  - Products come from GET /api/catalog/products?zip=…: only what the store sells in that ZIP,
- *    at that ZIP's price. The page never computes or adjusts a price.
- *  - Signal-first: the service-area check and the product list are httpResources driven by signals.
+ *  - Types come from what the store sells; products and prices come from /api/catalog/products?zip=.
+ *  - The page never computes or adjusts a price. Signal-first: every request is an httpResource.
  */
 @Component({
   selector: 'bp-new-quote-page',
   imports: [CurrencyPipe],
   template: `
     <div class="page">
-      <header class="page-head">
-        <span class="eyebrow">New quote</span>
-        <h1>Start your project</h1>
-        <p>Tell us where the project is and what you're working on. Prices are for your area.</p>
-      </header>
-
       <ol class="steps" aria-label="Progress">
-        <li [class.done]="served()" [class.current]="!served()">ZIP code</li>
-        <li [class.done]="!!category()" [class.current]="served() && !category()">Project type</li>
-        <li [class.done]="!!selected()" [class.current]="!!category() && !selected()">Product</li>
-        <li [class.current]="!!selected()">Measure</li>
-        <li>Options</li>
-        <li>Protection</li>
-        <li>Quote</li>
+        @for (s of stepLabels; track s.id; let i = $index) {
+          <li [class.done]="i < stepIndex()" [class.current]="i === stepIndex()" [attr.aria-current]="i === stepIndex() ? 'step' : null">{{ s.label }}</li>
+        }
       </ol>
 
-      <!-- Step 1: ZIP -->
-      @if (!served()) {
-        <section class="card step" data-testid="step-zip">
-          @if (profileZip() && !editing() && !zip()) {
-            <h2 class="card-title">Is this project at ZIP {{ profileZip() }}?</h2>
-            <p class="muted">That's the ZIP from your account.</p>
-            <div class="actions">
-              <button type="button" class="btn btn-primary" (click)="useZip(profileZip()!)" data-testid="zip-yes">Yes</button>
-              <button type="button" class="btn" (click)="editing.set(true)" data-testid="zip-no">No, it's somewhere else</button>
-            </div>
-          } @else {
-            <form (submit)="$event.preventDefault(); useZip(zipInput())">
-              <label class="field-label" for="zip-input">ZIP code of the project</label>
-              <div class="row">
-                <input id="zip-input" type="text" inputmode="text" autocomplete="postal-code" maxlength="10"
+      @switch (step()) {
+        @case ('zip') {
+          <section class="zip-card card" data-testid="step-zip">
+            <h1 class="title">Where's your project?</h1>
+            <p class="muted">We'll show what your store offers there, at that area's prices.</p>
+
+            @if (profileZip() && !editing()) {
+              <div class="zip-big" aria-hidden="true">{{ profileZip() }}</div>
+              <p class="muted small">The ZIP from your account</p>
+              <button type="button" class="btn btn-primary wide" (click)="useZip(profileZip()!)" [disabled]="area.isLoading()" data-testid="zip-yes">
+                {{ area.isLoading() ? 'Checking…' : 'Use ZIP ' + profileZip() }}
+              </button>
+              <button type="button" class="link" (click)="editing.set(true)" data-testid="zip-no">Use a different ZIP</button>
+            } @else {
+              <form class="zip-form" (submit)="$event.preventDefault(); useZip(zipInput())">
+                <label class="sr-only" for="zip-input">ZIP code of the project</label>
+                <input id="zip-input" type="text" inputmode="text" autocomplete="postal-code" maxlength="10" placeholder="ZIP code"
                        [value]="zipInput()" (input)="zipInput.set($any($event.target).value)" data-testid="zip-input" />
-                <button type="submit" class="btn btn-primary" [disabled]="!zipInput().trim() || area.isLoading()" data-testid="zip-continue">Continue</button>
-              </div>
-            </form>
-          }
-
-          @if (area.isLoading()) {
-            <p class="muted" aria-live="polite">Checking your area…</p>
-          } @else if (area.hasValue() && !area.value()!.served) {
-            <div class="warning" role="alert" data-testid="zip-not-served">
-              <span>We don't serve ZIP {{ area.value()!.zip }} yet. Try the ZIP where the work will happen.</span>
-            </div>
-          } @else if (area.error()) {
-            <div class="warning" role="alert" data-testid="zip-error"><span>{{ describe(area.error()) }}</span></div>
-          }
-        </section>
-      } @else {
-        <p class="chosen" data-testid="zip-chosen">
-          Project ZIP <strong>{{ servedZip() }}</strong>
-          <button type="button" class="link" (click)="changeZip()" data-testid="zip-change">Change</button>
-        </p>
-
-        <!-- Step 2: project type (only types the store sells in this ZIP) -->
-        <section class="card step" data-testid="step-category">
-          <h2 class="card-title">What are you working on?</h2>
-          @if (products.isLoading()) {
-            <p class="muted">Loading products for your area…</p>
-          } @else if (products.error()) {
-            <div class="warning" role="alert"><span>{{ describe(products.error()) }}</span></div>
-          } @else if (types().length === 0) {
-            <p class="muted" data-testid="no-products">Your store has no products for this ZIP yet.</p>
-          } @else {
-            <div class="tiles">
-              @for (t of types(); track t.id) {
-                <button type="button" class="tile" [class.active]="category() === t.id" [attr.aria-pressed]="category() === t.id"
-                        (click)="pickCategory(t.id!)" [attr.data-testid]="'type-' + t.id">
-                  @if (pictureOf(t.id!); as pic) { <img [src]="pic" alt="" width="320" height="200" loading="lazy" /> }
-                  <span class="tile-name">{{ t.name }}</span>
-                  <span class="muted">{{ t.count }} {{ t.count === 1 ? 'option' : 'options' }}</span>
+                <button type="submit" class="btn btn-primary wide" [disabled]="!zipInput().trim() || area.isLoading()" data-testid="zip-continue">
+                  {{ area.isLoading() ? 'Checking…' : 'Continue' }}
                 </button>
-              }
-            </div>
-          }
-        </section>
+              </form>
+              @if (profileZip()) { <button type="button" class="link" (click)="editing.set(false)">Use ZIP {{ profileZip() }} instead</button> }
+            }
 
-        <!-- Step 3: product, at this ZIP's price -->
-        @if (category()) {
-          <section class="card step" data-testid="step-product">
-            <h2 class="card-title">Choose a product</h2>
-            <div class="grid">
-              @for (p of inCategory(); track p.sku) {
-                <article class="product" [class.active]="selected() === p.sku" [attr.data-testid]="'product-' + p.sku">
-                  @if (p.imageUrl) { <img [src]="p.imageUrl" alt="" width="320" height="200" loading="lazy" /> }
-                  <h3>{{ p.name }}</h3>
-                  <div class="chips">
-                    @for (a of badges(p); track a) { <span class="badge">{{ a }}</span> }
-                  </div>
-                  <p class="price" data-testid="price">{{ p.listPrice | currency: p.currency }} <span class="muted">/ {{ unitLabel(p.unit) }}</span></p>
-                  <button type="button" class="btn" [class.btn-primary]="selected() === p.sku" (click)="selected.set(p.sku)"
-                          [attr.aria-pressed]="selected() === p.sku">{{ selected() === p.sku ? 'Selected' : 'Choose' }}</button>
-                </article>
-              }
-            </div>
+            @if (area.hasValue() && !area.value()!.served) {
+              <div class="warning" role="alert" data-testid="zip-not-served">
+                <span>We don't serve ZIP {{ area.value()!.zip }} yet. Try the ZIP where the work will happen.</span>
+              </div>
+            } @else if (area.error()) {
+              <div class="warning" role="alert" data-testid="zip-error"><span>{{ describe(area.error()) }}</span></div>
+            }
           </section>
         }
 
-        <!-- 2n-f: choosing a product starts the project; its workspace takes it from there. -->
-        @if (chosen(); as c) {
-          <section class="card step" data-testid="step-start">
-            <h2 class="card-title">Start your project</h2>
-            <p>{{ c.name }} at {{ c.listPrice | currency: c.currency }} / {{ unitLabel(c.unit) }} for ZIP {{ servedZip() }}. Next: measurements, options and your quote, saved as you go.</p>
-            <button type="button" class="btn btn-primary" (click)="start()" [disabled]="starting()" data-testid="start-project">
-              {{ starting() ? 'Starting…' : 'Start project' }}
-            </button>
+        @case ('type') {
+          <section class="step" data-testid="step-category">
+            <h1 class="title">What are you working on?</h1>
+            <p class="muted">For ZIP {{ servedZip() }} <button type="button" class="link" (click)="changeZip()" data-testid="zip-change">Change</button></p>
+            @if (products.isLoading()) {
+              <p class="muted">Loading…</p>
+            } @else if (products.error()) {
+              <div class="warning" role="alert"><span>{{ describe(products.error()) }}</span></div>
+            } @else if (types().length === 0) {
+              <p class="muted" data-testid="no-products">Your store has nothing for this ZIP yet.</p>
+            } @else {
+              <div class="tiles">
+                @for (t of types(); track t.id) {
+                  <button type="button" class="tile" (click)="pickCategory(t.id!)" [attr.data-testid]="'type-' + t.id">
+                    @if (pictureOf(t.id!); as pic) { <img [src]="pic" alt="" width="320" height="200" loading="lazy" /> }
+                    <span class="tile-name">{{ t.name }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </section>
+        }
+
+        @case ('product') {
+          <section class="step" data-testid="step-product">
+            <h1 class="title">Choose your {{ typeName().toLowerCase() }}</h1>
+            <p class="muted">Prices for ZIP {{ servedZip() }}</p>
+            @if (products.isLoading()) {
+              <p class="muted">Loading products for your area…</p>
+            } @else if (inCategory().length === 0) {
+              <p class="muted" data-testid="no-products">Your store doesn't offer {{ typeName().toLowerCase() }} in this ZIP yet.</p>
+            } @else {
+              <div class="grid">
+                @for (p of inCategory(); track p.sku) {
+                  <article class="product" [attr.data-testid]="'product-' + p.sku">
+                    @if (p.imageUrl) { <img [src]="p.imageUrl" alt="" width="320" height="200" loading="lazy" /> }
+                    <h2>{{ p.name }}</h2>
+                    <div class="chips">
+                      @for (a of badges(p); track a) { <span class="badge">{{ a }}</span> }
+                    </div>
+                    <p class="price" data-testid="price">{{ p.listPrice | currency: p.currency }} <span class="muted">/ {{ unitLabel(p.unit) }}</span></p>
+                    <button type="button" class="btn btn-primary" (click)="choose(p)" [disabled]="starting()" [attr.data-testid]="'choose-' + p.sku">
+                      {{ starting() && selected() === p.sku ? 'Starting…' : 'Choose' }}
+                    </button>
+                  </article>
+                }
+              </div>
+            }
             @if (startError()) { <div class="warning" role="alert"><span>{{ startError() }}</span></div> }
+            <div class="nav"><button type="button" class="btn" (click)="backToType()" data-testid="back">Back</button></div>
           </section>
         }
       }
     </div>
   `,
   styles: `
-    .steps { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1rem; counter-reset: step; }
-    .steps li { counter-increment: step; padding: .35rem .8rem; border-radius: 999px; border: 1px solid var(--bp-border); color: var(--bp-ink-muted); font-size: .9rem; }
+    .steps { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; margin: 0 0 1rem; counter-reset: step; }
+    .steps li { counter-increment: step; padding: .3rem .75rem; border-radius: 999px; border: 1px solid var(--bp-border); color: var(--bp-ink-muted); font-size: .85rem; }
     .steps li::before { content: counter(step) '. '; }
-    .steps li.current { border-color: var(--bp-accent); color: var(--bp-accent); font-weight: 600; }
+    .steps li.current { border-color: var(--bp-accent); background: var(--bp-accent); color: var(--bp-on-accent); font-weight: 600; }
     .steps li.done { background: var(--bp-accent-soft); color: var(--bp-accent); border-color: transparent; }
-    .step { display: grid; gap: .75rem; margin-bottom: 1rem; }
+    .step { display: grid; gap: .75rem; }
+    .zip-card { max-width: 26rem; margin: 2rem auto 0; display: grid; gap: .6rem; justify-items: center; text-align: center; padding: 2rem 1.75rem; }
+    .zip-big { font-family: var(--bp-font-heading); font-size: 2.6rem; font-weight: 700; letter-spacing: .06em; color: var(--bp-ink); line-height: 1.1; margin-top: .5rem; }
+    .small { font-size: .85rem; margin: 0; }
+    .wide { width: 100%; justify-content: center; }
+    .zip-form { display: grid; gap: .6rem; width: 100%; margin-top: .5rem; }
+    .zip-form input { width: 100%; text-align: center; font-size: 1.4rem; letter-spacing: .06em; box-sizing: border-box; }
+    .title { margin: 0; font-size: 1.5rem; }
+    .lead { font-size: 1.15rem; margin: 0; }
     .row { display: flex; gap: .6rem; flex-wrap: wrap; }
     .field-label { display: block; font-weight: 600; margin-bottom: .35rem; }
     input[type='text'] {
       min-height: var(--bp-tap); padding: 0 .9rem; border-radius: var(--bp-radius-md); width: 12rem;
       border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit;
     }
-    .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
-    .chosen { display: flex; align-items: center; gap: .6rem; margin: 0 0 1rem; }
+    .actions, .nav { display: flex; gap: .6rem; flex-wrap: wrap; }
     .link { min-height: var(--bp-tap); background: none; border: 0; color: var(--bp-accent); text-decoration: underline; cursor: pointer; font: inherit; }
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: .75rem; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .75rem; }
     .tile {
-      display: grid; gap: .2rem; text-align: left; min-height: 4.5rem; padding: .8rem 1rem; cursor: pointer; font: inherit; color: var(--bp-ink);
+      display: grid; gap: .35rem; text-align: left; padding: .6rem; cursor: pointer; font: inherit; color: var(--bp-ink);
       border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); background: var(--bp-surface);
     }
-    .tile img { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--bp-radius-sm, 6px); }
-    .tile.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); }
-    .tile-name { font-weight: 600; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1rem; }
-    .product { display: grid; gap: .5rem; align-content: start; padding: .75rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); }
-    .product.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); }
-    .product img { width: 100%; height: auto; border-radius: var(--bp-radius-sm, 6px); }
-    .product h3 { margin: 0; font-size: 1rem; }
+    .tile:hover, .tile:focus-visible { border-color: var(--bp-accent); }
+    .tile img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--bp-radius-sm, 6px); }
+    .tile-name { font-weight: 600; padding: 0 .2rem .2rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .75rem; }
+    .product { display: grid; gap: .4rem; align-content: start; padding: .6rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); }
+    .product img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--bp-radius-sm, 6px); }
+    .product h2 { margin: 0; font-size: 1rem; }
     .price { margin: 0; font-weight: 700; }
   `,
 })
 export class NewQuotePage {
   private readonly oidc = inject(OidcSecurityService);
+  private readonly router = inject(Router);
+
+  protected readonly stepLabels = [
+    { id: 'zip', label: 'ZIP' },
+    { id: 'type', label: 'Project type' },
+    { id: 'product', label: 'Product' },
+    { id: 'measure', label: 'Measure' },
+    { id: 'options', label: 'Options' },
+    { id: 'protection', label: 'Protection' },
+    { id: 'quote', label: 'Quote' },
+  ];
 
   /** The ZIP from the sign-up address (ID token claim postal_code), or null. */
   protected readonly profileZip = computed(() => {
@@ -180,11 +183,11 @@ export class NewQuotePage {
     return claims?.postal_code?.trim() || null;
   });
 
+  protected readonly category = signal<string | null>(null);
   protected readonly editing = signal(false);
   protected readonly zipInput = signal('');
   /** The ZIP being checked or in use; null until the customer answers. */
   protected readonly zip = signal<string | null>(null);
-  protected readonly category = signal<string | null>(null);
   protected readonly selected = signal<string | null>(null);
 
   protected readonly area = httpResource<ServiceArea>(() => {
@@ -193,6 +196,9 @@ export class NewQuotePage {
   });
   protected readonly served = computed(() => this.area.hasValue() && this.area.value()!.served);
   protected readonly servedZip = computed(() => (this.served() ? this.area.value()!.zip : null));
+
+  protected readonly step = computed<Step>(() => (!this.served() ? 'zip' : !this.category() ? 'type' : 'product'));
+  protected readonly stepIndex = computed(() => ['zip', 'type', 'product'].indexOf(this.step()));
 
   /** Only products sold in this ZIP, at this ZIP's price. */
   protected readonly products = httpResource<Product[]>(
@@ -204,15 +210,15 @@ export class NewQuotePage {
   );
   private readonly categories = categoriesResource();
 
-  /** Project types: categories sold in this ZIP that are projects (labour and "other" have no scene and aren't picked on their own). */
+  /** Project types: categories the store sells that are projects (labour and "other" have no scene). */
   protected readonly types = computed(() => {
     const projects = this.categories.value().filter((c) => c.scene !== 'none');
     return categoryTabs(this.products.value(), projects).filter((t) => t.id !== null);
   });
+  protected readonly typeName = computed(() => this.types().find((t) => t.id === this.category())?.name ?? 'product');
   protected readonly inCategory = computed(() => this.products.value().filter((p) => p.category === this.category()));
-  protected readonly chosen = computed(() => this.inCategory().find((p) => p.sku === this.selected()) ?? null);
-  // ---- 2n-f: create the project, save the product, open the workspace ----
-  private readonly router = inject(Router);
+
+  // ---- choosing a product creates the project, saves the product, opens the workspace ----
   private readonly createReq = signal<{ zip: string; title: string } | null>(null);
   private readonly created = httpResource<Project>(() => {
     const body = this.createReq();
@@ -229,49 +235,46 @@ export class NewQuotePage {
     return err ? this.describe(err) : null;
   });
 
-  protected start(): void {
-    const c = this.chosen();
-    const zip = this.servedZip();
-    if (!c || !zip) return;
-    const type = this.types().find((t) => t.id === c.category)?.name ?? 'Project';
-    this.createReq.set({ zip, title: `${type} · ${c.name}` });
-  }
-
-  /** A project type's picture: a product of that type sold in this ZIP. */
-  protected pictureOf(category: string): string | null {
-    return this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
-  }
-
   constructor() {
     effect(() => {
-      if (this.created.hasValue() && this.chosen() && !this.productReq()) {
-        this.productReq.set({ id: this.created.value()!.id, sku: this.chosen()!.sku });
-      }
+      const sku = this.selected();
+      if (this.created.hasValue() && sku && !this.productReq()) this.productReq.set({ id: this.created.value()!.id, sku });
     });
     effect(() => {
       if (this.productSaved.hasValue()) void this.router.navigate(['/projects', this.productSaved.value()!.id]);
     });
   }
 
+  protected pickCategory(id: string): void {
+    this.category.set(id);
+  }
+
+  protected backToType(): void {
+    this.category.set(null);
+  }
+
   protected useZip(zip: string): void {
     const value = zip.trim();
-    if (!value) return;
-    this.category.set(null);
-    this.selected.set(null);
-    this.zip.set(value);
+    if (value) this.zip.set(value);
   }
 
   protected changeZip(): void {
     this.zipInput.set('');
     this.zip.set(null);
-    this.editing.set(true);
     this.category.set(null);
-    this.selected.set(null);
+    this.editing.set(true);
   }
 
-  protected pickCategory(id: string): void {
-    this.category.set(id);
-    this.selected.set(null);
+  protected choose(p: Product): void {
+    const zip = this.servedZip();
+    if (!zip || this.starting()) return;
+    this.selected.set(p.sku);
+    this.createReq.set({ zip, title: `${this.typeName()} · ${p.name}` });
+  }
+
+  /** A project type's picture: one of the store's products of that type. */
+  protected pictureOf(category: string): string | null {
+    return this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
   }
 
   protected badges(p: Product): string[] {

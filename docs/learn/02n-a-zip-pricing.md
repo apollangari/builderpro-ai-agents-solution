@@ -42,7 +42,7 @@ the price on the quote come from the same row.
 
 ## 4. Try it (dev seed)
 
-Seeded users live at ZIP 62701 ("Springfield", list prices). Acme also serves Chicago (60601-60607)
+Seeded users live at ZIP 75078 (Prosper, TX: "DFW North", list prices; 62701 Springfield is served too). Acme also serves Chicago (60601-60607)
 at list price x 1.12, where butcher block and the wood shed aren't sold. Compare:
 
 ```

@@ -25,6 +25,12 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
       return "That doesn't look like a ZIP code. Enter 5 digits (or a Canadian postal code like K1A 0B1).";
     case 'zip_not_served':
       return "Your store doesn't serve this ZIP yet.";
+    case 'missing_scope':
+      return "Your account can't do this here: starting and saving projects is for the store's customers (403 missing_scope).";
+    case 'customer_only':
+      return 'Only the customer can do this (403 customer_only).';
+    case 'agent_cannot_accept':
+      return 'Only you can accept a quote; the concierge cannot.';
     case 'tenant_lookup_unavailable':
       return 'The platform could not confirm your tenant right now, so nothing is shown (503). Try again shortly.';
   }
@@ -35,7 +41,11 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
       return 'Not found (404). Is the service running in the AppHost?';
     case 429:
       return 'Too many requests: the gateway rate limit kicked in (429). Wait a minute.';
+    case 403:
+      return `You don't have access to this (403${code ? ' ' + code : ''}).`;
     default:
+      if ((http?.status ?? 0) >= 500) return `Something went wrong on our side (${http!.status}). Try again in a moment.`;
+      if ((http?.status ?? 0) >= 400) return `That didn't work (${http!.status}${code ? ' ' + code : ''}).`;
       return 'Could not reach the API. Is the AppHost running?';
   }
 }

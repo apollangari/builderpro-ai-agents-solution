@@ -55,7 +55,7 @@ is "send the same request again"; comparing the totals shows what changed.
 
 ## 5. Try it
 
-Restart the AppHost, sign in as alice, **Start a project** -> 62701 -> Countertops -> a quartz top.
+Restart the AppHost, sign in as alice, **Start a project** -> 75078 -> Countertops -> a quartz top.
 Try 4 ft x 25 in (watch the minimum line appear), add an island (the edge length grows), switch to
 ZIP 60601 (every price, options included, is 12 % higher).
 
