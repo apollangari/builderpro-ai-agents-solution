@@ -196,7 +196,11 @@ export class NewQuotePage {
   );
   private readonly categories = categoriesResource();
 
-  protected readonly types = computed(() => categoryTabs(this.products.value(), this.categories.value()).filter((t) => t.id !== null));
+  /** Project types: categories sold in this ZIP that are projects (labour and "other" have no scene and aren't picked on their own). */
+  protected readonly types = computed(() => {
+    const projects = this.categories.value().filter((c) => c.scene !== 'none');
+    return categoryTabs(this.products.value(), projects).filter((t) => t.id !== null);
+  });
   protected readonly inCategory = computed(() => this.products.value().filter((p) => p.category === this.category()));
   protected readonly chosen = computed(() => this.inCategory().find((p) => p.sku === this.selected()) ?? null);
   /** 0 or 1 items, so the steps component is created fresh when the product changes. */

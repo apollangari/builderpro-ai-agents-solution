@@ -9,6 +9,7 @@ const CATEGORIES = [
   { id: 'countertops', name: 'Countertops', defaultUnit: 'sqft', scene: 'kitchen', attributes: [], typical: null },
   { id: 'roofing', name: 'Roofing', defaultUnit: 'bundle', scene: 'roof', attributes: [], typical: null },
   { id: 'sheds', name: 'Sheds', defaultUnit: 'each', scene: 'yard', attributes: [], typical: null },
+  { id: 'labour', name: 'Installation & labour', defaultUnit: 'hour', scene: 'none', attributes: [], typical: null },
 ];
 const product = (sku: string, category: string, listPrice: number) => ({
   sku, name: sku, description: null, unit: 'sqft', listPrice, currency: 'USD', category, imageUrl: null, attributes: {},
@@ -54,12 +55,13 @@ describe('NewQuotePage (2n-a)', () => {
 
     http.expectOne('/api/catalog/service-area?zip=62701').flush({ zip: '62701', served: true });
     await settle();
-    http.expectOne('/api/catalog/products?zip=62701').flush([product('CT-QTZ', 'countertops', 89), product('ROOF-ARCH', 'roofing', 42.97)]);
+    http.expectOne('/api/catalog/products?zip=62701').flush([product('CT-QTZ', 'countertops', 89), product('ROOF-ARCH', 'roofing', 42.97), product('LABOR', 'labour', 65)]);
     await settle();
 
     expect(el.querySelector('[data-testid="zip-chosen"]')?.textContent).toContain('62701');
     expect(el.querySelector('[data-testid="type-countertops"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="type-sheds"]')).toBeNull(); // not sold in this ZIP
+    expect(el.querySelector('[data-testid="type-labour"]')).toBeNull(); // not a project type on its own
 
     await click(el, 'type-countertops');
     const cards = el.querySelectorAll('[data-testid^="product-"]');

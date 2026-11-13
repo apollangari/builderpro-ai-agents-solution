@@ -77,7 +77,8 @@ public static class GuidedQuoteBuilder
         Add("product", new QuoteLineInput(p.Sku, p.Name, p.Unit, measured, p.Price));
         if (request.MinimumQuantity is decimal min && measured < min)
         {
-            Add("minimum", new QuoteLineInput($"{p.Sku}-MIN", $"Minimum charge ({min:0.##} {p.Unit} minimum)", p.Unit, min - measured, p.Price));
+            var unit = p.Unit == "sqft" ? "sq ft" : p.Unit;
+            Add("minimum", new QuoteLineInput($"{p.Sku}-MIN", $"Minimum charge ({min:0.##} {unit} minimum)", p.Unit, min - measured, p.Price));
         }
 
         // 6: shape of the answers.
