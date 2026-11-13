@@ -4,6 +4,8 @@
 Admin console: http://localhost:8080 (admin / admin).
 
 All passwords: `Passw0rd!`. **Dev only.** These are throwaway credentials for a local container.
+Each seeded user has a complete fictional profile (555-01xx phone, contact consent, Springfield IL address),
+so the required sign-up fields never force an "update profile" step for them.
 
 | User | Fixed id | Token `tenant_id` | Memberships (Identity service, seeded in Development) | What you'll see on "Who am I" |
 |---|---|---|---|---|

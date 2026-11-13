@@ -142,3 +142,49 @@ public sealed class TenantLookupCacheTests
             .InvalidateAsync("k", "t", default);
     }
 }
+
+public sealed class TenantHintTests
+{
+    private static DefaultHttpContext With(string? header, string? tokenHint = null)
+    {
+        var claims = new List<System.Security.Claims.Claim> { new("iss", "http://idp.test/realms/builderpro"), new("sub", "dana") };
+        if (tokenHint is not null) claims.Add(new System.Security.Claims.Claim("tenant_id", tokenHint));
+        var ctx = new DefaultHttpContext { User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "Test")) };
+        if (header is not null) ctx.Request.Headers[TenantHint.Header] = header;
+        return ctx;
+    }
+
+    [Theory]
+    [InlineData("t-acme", null, "t-acme")]        // picker wins
+    [InlineData("t-acme", "t-globex", "t-acme")]  // ...even over the token claim
+    [InlineData(null, "t-globex", "t-globex")]    // no picker: token claim
+    [InlineData("bad id!", "t-globex", "t-globex")] // malformed picker ignored
+    [InlineData(null, null, null)]
+    public void Effective_hint(string? header, string? tokenHint, string? expected)
+    {
+        var http = With(header, tokenHint);
+        var user = ClaimsNormalizer.FromPrincipal(http.User, new AuthOptions());
+        Assert.Equal(expected, TenantHint.From(http, user));
+    }
+
+    [Fact]
+    public async Task The_cache_keeps_one_entry_per_picked_store()
+    {
+        var calls = 0;
+        var inner = new LambdaLookup(h => { calls++; return TenantLookup.Ok(h.Request.Headers[TenantHint.Header].ToString()); });
+        var cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+        var lookup = new CachingTenantLookup(inner, cache, new AuthOptions(), TimeSpan.FromMinutes(1), NullLogger<CachingTenantLookup>.Instance);
+
+        var acme = await lookup.ResolveAsync(With("t-acme"), default);
+        var globex = await lookup.ResolveAsync(With("t-globex"), default);
+        var acmeAgain = await lookup.ResolveAsync(With("t-acme"), default);
+
+        Assert.Equal(("t-acme", "t-globex", "t-acme"), (acme.TenantId, globex.TenantId, acmeAgain.TenantId));
+        Assert.Equal(2, calls);   // third call was a cache hit for the acme key
+    }
+
+    private sealed class LambdaLookup(Func<HttpContext, TenantLookup> f) : ITenantLookup
+    {
+        public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) => Task.FromResult(f(http));
+    }
+}

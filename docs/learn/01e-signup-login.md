@@ -61,7 +61,7 @@ else works.
 1. Open http://localhost:4200/signup?store=acme, create an account. You land on "Welcome, Acme
    Home Improvement", and the catalog shows Acme's products.
 2. Sign out, open `/signup?store=globex` and sign in with the same account: you're now a customer
-   of both, and "Who am I" shows 409 until a tenant is chosen (tenant switching comes later).
+   of both. The header shows a store picker; the catalog follows your choice.
 3. Keycloak admin (http://localhost:8080, admin/admin) → Users → your user → Attributes: phone,
    consent, hours and address are stored there.
 
@@ -72,4 +72,6 @@ else works.
   `POST /api/identity/consent/sync` once per sign-in), with the wording version from
   `Identity:ConsentWording`. Customers read their own history at `GET /api/identity/consent/history`.
   Bump `Identity:ConsentWording:Version` whenever the sign-up consent text changes.
-- **Tenant switcher** for users who are customers of several stores.
+- ~~Tenant switcher~~: done in 1f. Customers of several stores get a store picker in the header; the
+  choice travels as the `X-BuilderPro-Tenant` header, a HINT that Identity accepts only if it matches an
+  active membership (`TenantHint` in BuilderPro.Security).

@@ -140,6 +140,30 @@
       "attributes": {
         "tenant_id": [
           "t-acme"
+        ],
+        "phone": [
+          "+1 555 010 0001"
+        ],
+        "contactConsent": [
+          "text"
+        ],
+        "contactHours": [
+          "business"
+        ],
+        "addressLine1": [
+          "Alice Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
         ]
       },
       "realmRoles": [
@@ -164,6 +188,30 @@
       "attributes": {
         "tenant_id": [
           "t-acme"
+        ],
+        "phone": [
+          "+1 555 010 0002"
+        ],
+        "contactConsent": [
+          "call"
+        ],
+        "contactHours": [
+          "business"
+        ],
+        "addressLine1": [
+          "Bob Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
         ]
       },
       "realmRoles": [
@@ -188,6 +236,30 @@
       "attributes": {
         "tenant_id": [
           "t-globex"
+        ],
+        "phone": [
+          "+1 555 010 0003"
+        ],
+        "contactConsent": [
+          "both"
+        ],
+        "contactHours": [
+          "evenings"
+        ],
+        "addressLine1": [
+          "Carol Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
         ]
       },
       "realmRoles": [
@@ -219,7 +291,33 @@
           "value": "Passw0rd!",
           "temporary": false
         }
-      ]
+      ],
+      "attributes": {
+        "phone": [
+          "+1 555 010 0004"
+        ],
+        "contactConsent": [
+          "none"
+        ],
+        "contactHours": [
+          "weekends"
+        ],
+        "addressLine1": [
+          "Dana Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
+        ]
+      }
     },
     {
       "id": "e1110000-0000-4000-8000-000000000005",
@@ -238,7 +336,33 @@
           "value": "Passw0rd!",
           "temporary": false
         }
-      ]
+      ],
+      "attributes": {
+        "phone": [
+          "+1 555 010 0005"
+        ],
+        "contactConsent": [
+          "text"
+        ],
+        "contactHours": [
+          "anytime"
+        ],
+        "addressLine1": [
+          "Erin Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
+        ]
+      }
     },
     {
       "id": "9a700000-0000-4000-8000-000000000006",
@@ -257,7 +381,33 @@
           "value": "Passw0rd!",
           "temporary": false
         }
-      ]
+      ],
+      "attributes": {
+        "phone": [
+          "+1 555 010 0006"
+        ],
+        "contactConsent": [
+          "none"
+        ],
+        "contactHours": [
+          "business"
+        ],
+        "addressLine1": [
+          "Pat Test Street 1"
+        ],
+        "city": [
+          "Springfield"
+        ],
+        "region": [
+          "IL"
+        ],
+        "postalCode": [
+          "62701"
+        ],
+        "country": [
+          "US"
+        ]
+      }
     }
   ],
   "components": {

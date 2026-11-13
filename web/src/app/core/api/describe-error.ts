@@ -18,7 +18,7 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
     case 'membership_inactive':
       return 'Your access to this store was removed. Contact the retailer if you think this is a mistake.';
     case 'multiple_active_memberships':
-      return 'You belong to several tenants and the token does not say which one (409).';
+      return 'You belong to several stores. Choose one with the store picker at the top (409).';
     case 'tenant_not_permitted':
       return 'Your token names a tenant you are not a member of (403 tenant_not_permitted).';
     case 'tenant_lookup_unavailable':

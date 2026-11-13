@@ -68,7 +68,7 @@ describe('CatalogPage', () => {
     await fixture.whenStable();
 
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('[data-testid="catalog-error"]')?.textContent).toContain('several tenants');
+    expect(el.querySelector('[data-testid="catalog-error"]')?.textContent).toContain('several stores');
     expect(el.querySelectorAll('[data-testid="product"]').length).toBe(0);
   });
 

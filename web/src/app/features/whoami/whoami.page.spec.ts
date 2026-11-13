@@ -103,7 +103,7 @@ describe('WhoAmIPage', () => {
 
 describe('describeError', () => {
   it.each([
-    [{ status: 409, error: { code: 'multiple_active_memberships' } }, 'several tenants'],
+    [{ status: 409, error: { code: 'multiple_active_memberships' } }, 'several stores'],
     [{ status: 403, error: { code: 'tenant_not_permitted' } }, 'not a member of'],
     [{ status: 401, error: null }, '401'],
     [{ status: 429, error: null }, 'rate limit'],

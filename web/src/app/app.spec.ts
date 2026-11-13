@@ -21,7 +21,7 @@ function fakeOidc(authenticated: boolean, user: Record<string, unknown> | null =
  * Renders the shell. A signed-in shell POSTs a consent sync (httpResource); a pending request keeps
  * the app "unstable", so by default it is answered here. Pass answerConsentSync=false to inspect it.
  */
-async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = true) {
+async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = true, stores: unknown[] = []) {
   await TestBed.configureTestingModule({
     imports: [App],
     providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: OidcSecurityService, useValue: oidc }],
@@ -29,7 +29,9 @@ async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = tru
   const fixture = TestBed.createComponent(App);
   TestBed.tick();
   if (answerConsentSync) {
-    TestBed.inject(HttpTestingController).match('/api/identity/consent/sync').forEach((r) => r.flush({ recorded: false, current: null }));
+    const http = TestBed.inject(HttpTestingController);
+    http.match('/api/identity/consent/sync').forEach((r) => r.flush({ recorded: false, current: null }));
+    http.match('/api/identity/memberships/mine').forEach((r) => r.flush(stores));
     await fixture.whenStable();
   }
   return fixture.nativeElement as HTMLElement;
@@ -60,12 +62,43 @@ describe('App shell', () => {
     const req = http.expectOne('/api/identity/consent/sync');
     expect(req.request.method).toBe('POST');
     req.flush({ recorded: false, current: null });
+    http.expectOne('/api/identity/memberships/mine').flush([]);   // the store picker's request
     http.verify();
   });
 
   it('does not sync consent when signed out', async () => {
     await render(fakeOidc(false));
     TestBed.inject(HttpTestingController).expectNone('/api/identity/consent/sync');
+  });
+
+  it('shows a store picker only for customers of several stores', async () => {
+    const one = await render(fakeOidc(true, { name: 'Alice Acme' }), true, [{ tenantId: 't-acme', storeName: 'Acme', customerId: 'c-1' }]);
+    expect(one.querySelector('[data-testid="store-picker"]')).toBeNull();
+  });
+
+  it('lists every store in the picker', async () => {
+    const el = await render(fakeOidc(true, { name: 'Dana' }), true, [
+      { tenantId: 't-acme', storeName: 'Acme Home Improvement', customerId: 'c-a' },
+      { tenantId: 't-globex', storeName: 'Globex Building Supply', customerId: 'c-g' },
+    ]);
+    const options = [...el.querySelectorAll('[data-testid="store-picker"] option')].map((o) => o.textContent?.trim());
+    expect(options).toEqual(['Choose a store…', 'Acme Home Improvement', 'Globex Building Supply']);
+  });
+
+  it('keeps a remembered pick that is one of your stores, and drops one that is not', async () => {
+    const stores = [
+      { tenantId: 't-acme', storeName: 'Acme', customerId: 'c-a' },
+      { tenantId: 't-globex', storeName: 'Globex', customerId: 'c-g' },
+    ];
+    sessionStorage.setItem('bp.selectedTenant', 't-acme');
+    await render(fakeOidc(true, { name: 'Dana' }), true, stores);
+    expect(sessionStorage.getItem('bp.selectedTenant')).toBe('t-acme');
+
+    TestBed.resetTestingModule();
+    sessionStorage.setItem('bp.selectedTenant', 't-initech');
+    await render(fakeOidc(true, { name: 'Dana' }), true, stores);
+    expect(sessionStorage.getItem('bp.selectedTenant')).toBeNull();
+    sessionStorage.clear();
   });
 
   it('shows the retailer brand and project label from the theme', async () => {

@@ -16,6 +16,8 @@ public sealed record UpsertMembershipRequest(string TenantId, string UserKey, st
 
 public sealed record RevokeRequest(string? Reason);
 
+public sealed record MyMembershipDto(string TenantId, string StoreName, string? CustomerId);
+
 public static class IdentityEndpoints
 {
     public const string AdminPolicy = "IdentityAdmin";
@@ -29,6 +31,9 @@ public static class IdentityEndpoints
 
         api.MapConsentEndpoints();
 
+        api.MapGet("/memberships/mine", MineAsync)
+            .WithSummary("The caller's ACTIVE memberships with store names: what the store picker offers.");
+
         api.MapPost("/onboarding", Onboarding.JoinAsync)
             .WithSummary("Join a store through its public sign-up link: creates a CUSTOMER membership (decision 1e).");
 
@@ -41,9 +46,11 @@ public static class IdentityEndpoints
     }
 
     internal static async Task<IResult> GetMeAsync(
-        ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, CancellationToken ct)
+        HttpContext http, ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, CancellationToken ct)
     {
-        var user = ClaimsNormalizer.FromPrincipal(principal, options);
+        // Store picker (1f): the X-BuilderPro-Tenant header is a hint like the token claim, still
+        // checked against active memberships by TenantResolver.
+        var user = TenantHint.Apply(http, ClaimsNormalizer.FromPrincipal(principal, options));
         var result = TenantResolver.Resolve(user, await store.FindByUserAsync(user.UserKey, ct), clock.GetUtcNow());
 
         return result.Outcome switch
@@ -58,6 +65,18 @@ public static class IdentityEndpoints
                     ? "Your token names a tenant you have no active membership in."
                     : "You are signed in but not a member of any tenant yet."),
         };
+    }
+
+    internal static async Task<IResult> MineAsync(
+        ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, IConfiguration config, TimeProvider clock, CancellationToken ct)
+    {
+        var user = ClaimsNormalizer.FromPrincipal(principal, options);
+        var now = clock.GetUtcNow();
+        var names = (config.GetSection("Identity:Stores").Get<StoreOptions[]>() ?? []).ToDictionary(s => s.TenantId, s => s.Name, StringComparer.Ordinal);
+        return Results.Ok((await store.FindByUserAsync(user.UserKey, ct))
+            .Where(m => m.IsActive(now))
+            .OrderBy(m => m.TenantId, StringComparer.Ordinal)
+            .Select(m => new MyMembershipDto(m.TenantId, names.GetValueOrDefault(m.TenantId, m.TenantId), m.CustomerId)));
     }
 
     internal static async Task<IResult> ListAsync(string tenantId, IMembershipStore store, TimeProvider clock, CancellationToken ct)

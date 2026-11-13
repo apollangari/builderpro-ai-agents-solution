@@ -27,6 +27,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2y' | Navy & Sand theme (Option A), `ThemeService` white-label accent |
 | 2e | Dapper in every store (SQL unchanged); store tests against real Postgres (Testcontainers); roofing products in the dev seed |
 | 2f | Redis for hot reads: tenant lookup + product lists, invalidated by the data owner ([LEARN](learn/02f-redis-hot-reads.md)) |
+| 1f-c | Store picker: `X-BuilderPro-Tenant` hint (validated against memberships), forwarded by Catalog/Quotes, part of the cache key; picker in the header for multi-store customers; seeded users get complete profiles |
 | 1f-b | Consent audit trail: token claims -> append-only `identity.consent_events` (choice, hours, wording version, source, time); own history API |
 | 1f-a | Email: Mailpit locally (verification on, password reset), Zoho opt-in via user secrets ([docs/email.md](email.md)) |
 | 1e | Sign-up via store link, Navy & Sand Keycloak login, Continue with Google (when secrets set), address / phone / contact consent / contact hours on sign-up ([LEARN](learn/01e-signup-login.md)) |
@@ -35,7 +36,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 1f-c | **Store switcher** for customers of several stores (header-based tenant hint, validated against memberships) | dana can pick t-acme or t-globex; tests |
 | 2h | **Product categories + attributes** (Catalog): fixed category list (countertops, roofing, sheds, flooring, decking, cabinets, paint, windows-doors, fencing, labour), each with attribute definitions (countertop: material, colour, finish, thickness; shingles: style, colour, wind rating, bundles per square; shed: size, material, roof style). Schema v2: `category`, `attributes jsonb`, `image_url`. `GET /api/catalog/categories`, `GET /api/catalog/products?category=`. Seed several products per category for t-acme and t-globex | Tests: filter, unknown category, tenant isolation still holds |
 | 2i | **Sample images**: generated SVGs (stone textures, shingle swatches, shed drawings) in `web/public/products/`, referenced by `imageUrl`. No copied web photos (licensing) | Every seeded product has an image |
 | 2j | **Product picker UI**: category tabs, attribute filters, image cards; signal-first, Navy & Sand tokens | Component tests; 44 px targets |

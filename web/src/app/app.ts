@@ -4,6 +4,14 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { ThemeService } from './core/theme/theme.service';
 import { PendingSignup } from './features/signup/pending-signup';
+import { SelectedStore } from './core/tenant/selected-store';
+
+/** GET /api/identity/memberships/mine. Mirrors MyMembershipDto in C#. */
+interface MyMembership {
+  tenantId: string;
+  storeName: string;
+  customerId: string | null;
+}
 
 /**
  * The shell, "Option A: Studio split" header:
@@ -30,6 +38,18 @@ import { PendingSignup } from './features/signup/pending-signup';
         </a>
 
         <span class="spacer"></span>
+
+        @if (stores.value().length > 1) {
+          <label class="picker">
+            <span class="sr-only">Store</span>
+            <select data-testid="store-picker" [value]="selected.tenantId() ?? ''" (change)="pick($any($event.target).value)">
+              <option value="" disabled>Choose a store…</option>
+              @for (s of stores.value(); track s.tenantId) {
+                <option [value]="s.tenantId">{{ s.storeName }}</option>
+              }
+            </select>
+          </label>
+        }
 
         <span class="project" data-testid="project-label">{{ theme.projectLabel() }}</span>
 
@@ -85,6 +105,12 @@ import { PendingSignup } from './features/signup/pending-signup';
       font-family: var(--bp-font-heading); font-weight: 600; font-size: .9rem;
     }
 
+    .picker select {
+      min-height: var(--bp-tap); padding: 0 .75rem; border-radius: var(--bp-radius-md);
+      border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink);
+      font: inherit; font-weight: 600;
+    }
+
     .nav { padding-top: 0; padding-bottom: .5rem; gap: .25rem; }
     .nav a {
       display: inline-flex; align-items: center; min-height: var(--bp-tap); padding: 0 .9rem;
@@ -116,7 +142,30 @@ export class App {
     this.isAuthenticated() ? { url: '/api/identity/consent/sync', method: 'POST' } : undefined,
   );
 
+  protected readonly selected = inject(SelectedStore);
+
+  /** The stores this user belongs to; the picker shows only when there are two or more. */
+  protected readonly stores = httpResource<MyMembership[]>(
+    () => (this.isAuthenticated() ? '/api/identity/memberships/mine' : undefined),
+    { defaultValue: [] },
+  );
+
+  /** Switch store: every page's data depends on it, so start the page fresh. */
+  pick(tenantId: string): void {
+    this.selected.select(tenantId);
+    window.location.reload();
+  }
+
   constructor() {
+    // A remembered pick that is no longer one of your stores is dropped.
+    effect(() => {
+      const mine = this.stores.value();
+      const pick = this.selected.tenantId();
+      // status 'resolved', not hasValue(): with defaultValue [] hasValue() is already true before
+      // the list arrives, which would wrongly drop the pick on every page load.
+      if (this.stores.status() === 'resolved' && pick && !mine.some((s) => s.tenantId === pick)) this.selected.select(null);
+    });
+
     // Static brand for now; later the tenant's config is passed here.
     this.theme.apply();
 

@@ -41,7 +41,7 @@ public sealed class CachingTenantLookup(
         if (http.User.Identity?.IsAuthenticated != true) return await inner.ResolveAsync(http, ct);
 
         var user = ClaimsNormalizer.FromPrincipal(http.User, auth);
-        var key = TenantCacheKeys.For(user.UserKey, user.TenantHint);
+        var key = TenantCacheKeys.For(user.UserKey, TenantHint.From(http, user));   // picker choice is part of the key
 
         try
         {

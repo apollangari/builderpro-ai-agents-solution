@@ -52,6 +52,22 @@ public sealed class IdentityTenantLookupTests
     }
 
     [Fact]
+    public async Task Forwards_the_store_pick_to_identity_but_never_a_malformed_one()
+    {
+        var (lookup, stub) = Create(_ => Json(HttpStatusCode.OK, """{"tenantId":"t-acme"}"""));
+
+        var good = WithBearer("t");
+        good.Request.Headers["X-BuilderPro-Tenant"] = "t-acme";
+        await lookup.ResolveAsync(good, default);
+        Assert.Equal("t-acme", stub.Last!.Headers.GetValues("X-BuilderPro-Tenant").Single());
+
+        var bad = WithBearer("t");
+        bad.Request.Headers["X-BuilderPro-Tenant"] = "t-acme\r\nX-Evil: 1";   // header-injection attempt
+        await lookup.ResolveAsync(bad, default);
+        Assert.False(stub.Last!.Headers.Contains("X-BuilderPro-Tenant"));
+    }
+
+    [Fact]
     public async Task Returns_the_membership_customer_and_scopes()
     {
         var (lookup, _) = Create(_ => Json(HttpStatusCode.OK, """{"tenantId":"t-acme","customerId":"c-alice","scopes":["quotes.read","quotes.write"]}"""));

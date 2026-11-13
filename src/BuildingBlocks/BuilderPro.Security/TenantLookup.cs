@@ -88,6 +88,9 @@ public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenant
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/identity/me");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth.Parameter);
+        // Pass the store picker's choice along; Identity validates it against memberships.
+        var hint = context.Request.Headers[TenantHint.Header].ToString();
+        if (ClaimsNormalizer.IsIdentifier(hint)) request.Headers.Add(TenantHint.Header, hint);
 
         try
         {
