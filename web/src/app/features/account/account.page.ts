@@ -135,12 +135,13 @@ const HOURS = [
     .form { display: grid; gap: .8rem; }
     .form label { display: grid; gap: .3rem; font-weight: 600; }
     .form input, .form select {
+      width: 100%; box-sizing: border-box; min-width: 0;
       min-height: var(--bp-tap); padding: 0 .8rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong);
       background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 400;
     }
     .form input:disabled { background: var(--bp-surface-muted); color: var(--bp-ink-muted); }
-    .grid2 { display: grid; gap: .8rem; grid-template-columns: 1fr 1fr; }
-    .grid3 { display: grid; gap: .8rem; grid-template-columns: 2fr 1fr 1fr; }
+    .grid2 { display: grid; gap: .8rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .grid3 { display: grid; gap: .8rem; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
     @media (max-width: 640px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
     fieldset { border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); padding: .6rem .9rem; display: grid; gap: .2rem; }
     legend { font-weight: 600; padding: 0 .3rem; }

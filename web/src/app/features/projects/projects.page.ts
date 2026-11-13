@@ -34,7 +34,7 @@ import { ProjectSummary, STAGES } from '../quote/guided';
           }
         </div>
       }
-      <p><a routerLink="/quote/new" class="btn btn-primary">Start a project</a></p>
+      <div class="page-actions"><a routerLink="/quote/new" class="btn btn-primary">Start a project</a></div>
     </div>
   `,
   styles: `

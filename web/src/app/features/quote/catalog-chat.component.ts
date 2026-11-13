@@ -54,10 +54,11 @@ interface Turn {
   styles: `
     :host { display: block; }
     .chat { display: grid; gap: .6rem; }
-    /* Wide screens: fill the column to the bottom of the work beside it (owner: symmetry); the log scrolls inside. */
+    /* Wide screens: the chat stays beside you while the page scrolls, as tall as the screen allows
+       (never taller than the work beside it), so Send is always in view; messages scroll inside. */
     @media (min-width: 901px) {
-      :host { position: relative; min-height: 24rem; height: 100%; }
-      .chat { position: absolute; inset: 0; grid-template-rows: auto minmax(0, 1fr) auto; }
+      :host { position: sticky; top: 1rem; align-self: start; height: min(100%, calc(100dvh - 14rem)); min-height: 20rem; }
+      .chat { height: 100%; box-sizing: border-box; grid-template-rows: auto minmax(0, 1fr) auto; }
       .log { max-height: none; }
     }
     .head { display: flex; align-items: center; gap: .5rem; }

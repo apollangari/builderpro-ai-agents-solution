@@ -302,3 +302,7 @@ code {
     margin-bottom: 0.6rem;
   }
 }
+
+/* Action rows sit on the right of the page or card (owner). Pages may override, e.g. Home centres its two choices. */
+.actions, .page-actions { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; align-items: center; }
+.page-actions { margin-top: 1rem; }

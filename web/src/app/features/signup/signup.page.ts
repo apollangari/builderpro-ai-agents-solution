@@ -23,7 +23,7 @@ import { PendingSignup } from './pending-signup';
           <div class="warning" role="alert" data-testid="signup-invalid">
             <span>This link doesn't say which store you're signing up with. Ask your retailer for their sign-up link.</span>
           </div>
-          <p><a routerLink="/" class="btn">Back to home</a></p>
+          <div class="page-actions"><a routerLink="/" class="btn">Back to home</a></div>
         }
       </section>
     </div>

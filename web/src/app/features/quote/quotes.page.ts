@@ -51,7 +51,7 @@ export interface QuoteSummary {
           }
         </div>
       }
-      <p><a routerLink="/quote/new" class="btn btn-primary">Start a project</a></p>
+      <div class="page-actions"><a routerLink="/quote/new" class="btn btn-primary">Start a project</a></div>
     </div>
   `,
   styles: `
