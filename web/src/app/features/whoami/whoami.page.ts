@@ -1,6 +1,7 @@
 import { Component, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { describeError, meResource, platformMeResource } from './whoami.service';
+import { describeError } from '../../core/api/describe-error';
+import { meResource, platformMeResource } from './whoami.api';
 
 type Verdict = { tone: 'ok' | 'warn' | 'danger'; label: string; text: string };
 

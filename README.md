@@ -52,6 +52,7 @@ docs/                           setup, branching, learning guides, ADRs
 | 1c | YARP gateway in front | ✅ | [docs/learn/01c-yarp-gateway.md](docs/learn/01c-yarp-gateway.md) |
 | 1d | Identity service + claims normalisation + memberships | ✅ | [docs/learn/01d-identity-memberships.md](docs/learn/01d-identity-memberships.md) |
 | 2a | Catalog service: products per tenant, tenant resolved by Identity | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md) |
+| 2b | Catalog page in Angular (`/catalog`, signal-first) | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md#3-try-it) |
 
 ## How we work
 

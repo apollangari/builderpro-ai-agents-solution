@@ -10,5 +10,10 @@ export const routes: Routes = [
     canActivate: [autoLoginPartialRoutesGuard],
     loadComponent: () => import('./features/whoami/whoami.page').then((m) => m.WhoAmIPage),
   },
+  {
+    path: 'catalog',
+    canActivate: [autoLoginPartialRoutesGuard],
+    loadComponent: () => import('./features/catalog/catalog.page').then((m) => m.CatalogPage),
+  },
   { path: '**', redirectTo: '' },
 ];

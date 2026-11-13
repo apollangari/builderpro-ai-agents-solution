@@ -57,8 +57,9 @@ agent will read prices from this API and never compute one.
 ## 3. Try it
 
 1. Run the AppHost. In the dashboard, `catalog` waits for `catalogdb` and `identity`.
-2. Sign in as `alice` (t-acme). In the browser dev tools **Network** tab, open any `/api/me`
-   request and copy the value after `Authorization: Bearer `. Then (there's no UI page until 2b):
+2. Open http://localhost:4200/catalog and sign in as `alice` (t-acme): three products.
+   To call the API directly, copy the bearer token from any `/api/...` request in the dev tools
+   **Network** tab:
    ```bash
    curl -s http://localhost:4200/api/catalog/products -H "Authorization: Bearer <paste token>"
    ```
@@ -76,6 +77,11 @@ agent will read prices from this API and never compute one.
 3. **Revoke a membership** through the Identity admin API, then call the catalog with the same,
    still-valid token. Access stops immediately: the token didn't change, the membership did.
 
+4. **Restart the AppHost while signed in**, then reload `/catalog`. Every API answers 401 with
+   `error_description="The signature key was not found"`. Keycloak generated new signing keys on
+   start, so the token your browser kept was signed by keys that no longer exist. Sign out and in
+   again. (In production the IdP keeps and rotates its keys, so this doesn't happen.)
+
 ## 5. Review questions
 
 1. *Why forward the user's token instead of using a service-to-service credential?*
@@ -90,4 +96,3 @@ agent will read prices from this API and never compute one.
 
 - No admin API for products (the dev seed fills `catalogdb`). Comes with the retailer back office.
 - No cache on the tenant lookup.
-- No Angular page (that's 2b).

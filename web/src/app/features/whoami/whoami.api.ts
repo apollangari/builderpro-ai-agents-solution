@@ -1,4 +1,4 @@
-import { HttpErrorResponse, HttpResourceRef, httpResource } from '@angular/common/http';
+import { HttpResourceRef, httpResource } from '@angular/common/http';
 
 /** GET /api/me (Me API): what the ACCESS TOKEN says. Mirrors MeResponse in C#. */
 export interface MeResponse {
@@ -40,26 +40,4 @@ export function meResource(): HttpResourceRef<MeResponse | undefined> {
 
 export function platformMeResource(): HttpResourceRef<PlatformMeResponse | undefined> {
   return httpResource<PlatformMeResponse>(() => '/api/identity/me');
-}
-
-/** Turns an API error into a sentence a user (and a learner) can act on. */
-export function describeError(err: HttpErrorResponse | { status?: number; error?: unknown } | Error | undefined): string {
-  const http = err as { status?: number; error?: unknown } | undefined;
-  const code = (http?.error as { code?: string } | null | undefined)?.code;
-  switch (code) {
-    case 'no_membership':
-      return 'You are signed in, but not a member of any tenant yet (403 no_membership).';
-    case 'multiple_active_memberships':
-      return 'You belong to several tenants and the token does not say which one (409).';
-    case 'tenant_not_permitted':
-      return 'Your token names a tenant you are not a member of (403 tenant_not_permitted).';
-  }
-  switch (http?.status) {
-    case 401:
-      return 'The API rejected your token (401). See LEARN 1b, lab C.';
-    case 429:
-      return 'Too many requests: the gateway rate limit kicked in (429). Wait a minute.';
-    default:
-      return 'Could not reach the API. Is the AppHost running?';
-  }
 }

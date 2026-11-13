@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WhoAmIPage } from './whoami.page';
-import { describeError } from './whoami.service';
+import { describeError } from '../../core/api/describe-error';
 
 const tokenView = {
   authenticated: true, userId: 'u-1', userName: 'alice', tenantId: 't-acme',

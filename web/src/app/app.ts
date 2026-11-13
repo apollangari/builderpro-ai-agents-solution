@@ -18,6 +18,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 
         <nav aria-label="Main">
           <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+          <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
           <a routerLink="/me" routerLinkActive="active">Who am I</a>
         </nav>
 
