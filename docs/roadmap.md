@@ -27,6 +27,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 2y' | Navy & Sand theme (Option A), `ThemeService` white-label accent |
 | 2e | Dapper in every store (SQL unchanged); store tests against real Postgres (Testcontainers); roofing products in the dev seed |
 | 2f | Redis for hot reads: tenant lookup + product lists, invalidated by the data owner ([LEARN](learn/02f-redis-hot-reads.md)) |
+| 3a | Read-only product assistant (`/assistant`): Microsoft Agent Framework agent with catalog/quote tools (categories, search, roof estimator, `price_products`); a server-side price guard blocks any amount no tool returned; Foundry gpt-4o or any OpenAI-compatible local LLM, chosen in user secrets ([LEARN](learn/03a-product-assistant.md)) |
 | 2m | Quote builder: Add to quote from the picker, `/quote` with editable quantities and a live server preview (`POST /api/quotes/preview`, same pricing path as create), roof calculator adding shingles/underlayment/drip edge/labour found by attributes, save, `/quotes` (My quotes) |
 | 2g | Roof estimator (domain): footprint + pitch + waste + edges -> pitch factor, squares, bundles, underlayment rolls, drip edge (materials rounded up); `POST /api/quotes/estimators/roof`, quantities only |
 | 2l-b | "My photo": upload a room photo (stays in the browser, 15 MB max), drag 4 corners (mouse, touch or arrow keys) and the product is drawn in perspective (homography + triangle subdivision on canvas; paint as a multiply colour layer) |
@@ -44,7 +45,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 3a | **First agent, read-only**: .NET Agent Framework agent that answers product questions using catalog tools only | Agent never states a price it didn't get from a tool |
 | 3b | **Agent drafts a quote**: agent proposes lines, the Quote API prices them, a human approves | The agent cannot approve its own quote |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
@@ -59,9 +59,15 @@ not a contract: anything past the next two or three rows will be re-cut as we le
   later request; an existing membership is never changed by a sign-up link; staff roles are never granted this way.
   Without a store, a new user sees "ask your retailer for a sign-up link" instead of an error.
 
+- **3a LLM provider (2026-11-13): Microsoft Foundry, gpt-4o deployment.** Key, endpoint and deployment live in
+  AppHost user secrets locally (Key Vault in Azure). For development, any OpenAI-compatible server (a free local
+  LLM) can be used instead by setting `assistant-provider=local`; never with real customer data.
+
 ## Open questions
 
-- **3a LLM provider (blocks the agents):** Microsoft Foundry / Azure OpenAI (matches the .NET Agent Framework + Azure plan) or Anthropic Claude, which model, and where the key lives (user secrets locally, Key Vault in Azure). Needs the owner's account and budget.
+- **Foundry quota:** the gpt-4o deployment answers one call and then rate-limits (HTTP 429) the follow-up call
+  after a tool runs, so the assistant reports "busy". Raise the deployment's tokens-per-minute limit in the
+  Foundry portal (Deployments → gpt-4o → Edit), or use a local OpenAI-compatible LLM for development.
 
 ## Conventions
 

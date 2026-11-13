@@ -28,5 +28,6 @@
     <ProjectReference Include="../../Services/Identity/BuilderPro.Identity.Api/BuilderPro.Identity.Api.csproj" />
     <ProjectReference Include="../../Services/Catalog/BuilderPro.Catalog.Api/BuilderPro.Catalog.Api.csproj" />
     <ProjectReference Include="../../Services/Quotes/BuilderPro.Quotes.Api/BuilderPro.Quotes.Api.csproj" />
+    <ProjectReference Include="../../Services/Assistant/BuilderPro.Assistant.Api/BuilderPro.Assistant.Api.csproj" />
   </ItemGroup>
 </Project>

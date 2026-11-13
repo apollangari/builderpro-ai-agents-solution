@@ -16,6 +16,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/catalog/catalog.page').then((m) => m.CatalogPage),
   },
   {
+    path: 'assistant',
+    canActivate: [autoLoginPartialRoutesGuard],
+    loadComponent: () => import('./features/assistant/assistant.page').then((m) => m.AssistantPage),
+  },
+  {
     path: 'quote',
     canActivate: [autoLoginPartialRoutesGuard],
     loadComponent: () => import('./features/quote/quote.page').then((m) => m.QuotePage),

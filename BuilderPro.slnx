@@ -15,6 +15,7 @@
     <Project Path="src/Services/Catalog/BuilderPro.Catalog.Api/BuilderPro.Catalog.Api.csproj" />
     <Project Path="src/Services/Quotes/BuilderPro.Quotes.Domain/BuilderPro.Quotes.Domain.csproj" />
     <Project Path="src/Services/Quotes/BuilderPro.Quotes.Api/BuilderPro.Quotes.Api.csproj" />
+    <Project Path="src/Services/Assistant/BuilderPro.Assistant.Api/BuilderPro.Assistant.Api.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/BuilderPro.Me.Api.Tests/BuilderPro.Me.Api.Tests.csproj" />
@@ -24,6 +25,7 @@
     <Project Path="tests/BuilderPro.Quotes.Domain.Tests/BuilderPro.Quotes.Domain.Tests.csproj" />
     <Project Path="tests/BuilderPro.Quotes.Api.Tests/BuilderPro.Quotes.Api.Tests.csproj" />
     <Project Path="tests/BuilderPro.Persistence.Tests/BuilderPro.Persistence.Tests.csproj" />
+    <Project Path="tests/BuilderPro.Assistant.Api.Tests/BuilderPro.Assistant.Api.Tests.csproj" />
     <Project Path="tests/BuilderPro.Security.Tests/BuilderPro.Security.Tests.csproj" />
   </Folder>
 </Solution>

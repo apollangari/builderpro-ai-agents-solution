@@ -7,6 +7,7 @@
 // 2a: + Catalog service: products per tenant; asks Identity which tenant the caller is in.
 // 2d: + Quotes service: prices quotes with catalog list prices and the pure pricing domain.
 // 2f: + Redis: hot-read cache for tenant lookups and catalog product lists.
+// 3a: + Assistant: read-only product agent (Microsoft Agent Framework, gpt-4o on Microsoft Foundry).
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -144,6 +145,51 @@ var quotes = builder.AddProject<Projects.BuilderPro_Quotes_Api>("quotes")
     .WaitFor(catalog);
 
 // ---------------------------------------------------------------------------
+// Assistant (3a): an agent whose tools call Catalog and Quotes AS THE CALLER. The model is
+// Microsoft Foundry; settings come from user secrets (never git):
+//   Parameters:foundry-endpoint   https://<resource>.services.ai.azure.com/... (only the host is used)
+//   Parameters:foundry-deployment gpt-4o
+//   Parameters:foundry-api-key    (secret)
+// Without them the assistant answers 503 and everything else works.
+// ---------------------------------------------------------------------------
+var assistant = builder.AddProject<Projects.BuilderPro_Assistant_Api>("assistant")
+    .WithReference(identity)
+    .WithReference(catalog)
+    .WithReference(quotes)
+    .WithEnvironment("Auth__Authority", realmUrl)
+    .WithEnvironment("Auth__RequireHttpsMetadata", "false")
+    .WithHttpHealthCheck("/health")
+    .WaitFor(catalog)
+    .WaitFor(quotes);
+// Or a free local LLM with an OpenAI-compatible API (Ollama, LM Studio, vLLM), e.g. for development:
+//   Parameters:assistant-provider  local
+//   Parameters:local-llm-endpoint  http://localhost:11434/v1   (the server's OpenAI-compatible base URL)
+//   Parameters:local-llm-model     qwen2.5:7b                  (a model that supports tool calling)
+//   Parameters:local-llm-api-key   optional (e.g. FreeLLMAPI's unified key; Ollama needs none)
+if (builder.Configuration["Parameters:assistant-provider"] == "local" &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:local-llm-endpoint"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:local-llm-model"]))
+{
+    assistant
+        .WithEnvironment("Assistant__Provider", "openai-compatible")
+        .WithEnvironment("Assistant__Endpoint", builder.AddParameter("local-llm-endpoint"))
+        .WithEnvironment("Assistant__Deployment", builder.AddParameter("local-llm-model"));
+    if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:local-llm-api-key"]))
+    {
+        assistant.WithEnvironment("Assistant__ApiKey", builder.AddParameter("local-llm-api-key", secret: true));
+    }
+}
+else if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:foundry-endpoint"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:foundry-deployment"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:foundry-api-key"]))
+{
+    assistant
+        .WithEnvironment("Assistant__Endpoint", builder.AddParameter("foundry-endpoint"))
+        .WithEnvironment("Assistant__Deployment", builder.AddParameter("foundry-deployment"))
+        .WithEnvironment("Assistant__ApiKey", builder.AddParameter("foundry-api-key", secret: true));
+}
+
+// ---------------------------------------------------------------------------
 // Me API: validates the bearer token issued by Keycloak.
 // ---------------------------------------------------------------------------
 var meApi = builder.AddProject<Projects.BuilderPro_Me_Api>("me-api")
@@ -164,6 +210,7 @@ var gateway = builder.AddProject<Projects.BuilderPro_Gateway>("gateway")
     .WithReference(identity)
     .WithReference(catalog)
     .WithReference(quotes)
+    .WithReference(assistant)
     .WithHttpHealthCheck("/health")
     .WaitFor(meApi)
     .WaitFor(identity)
