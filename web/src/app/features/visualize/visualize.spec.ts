@@ -61,7 +61,9 @@ describe('SceneComponent', () => {
     expect(target).not.toBeNull();
     if (category === 'paint') {
       expect(target.getAttribute('fill')).toBe('#9caf88');                 // colour
-    } else if (['countertops', 'roofing', 'decking', 'flooring', 'cabinets'].includes(category)) {
+    } else if (category === 'cabinets') {
+      expect(target.getAttribute('fill')).toBe('#9caf88');                 // drawn fronts in the product colour
+    } else if (['countertops', 'roofing', 'decking', 'flooring'].includes(category)) {
       expect(target.getAttribute('fill')).toMatch(/^url\(#bp-scene-pattern-\d+\)$/); // product texture
     } else {
       expect(target.getAttribute('href')).toBe('/products/p.svg');          // product image as an object
@@ -177,5 +179,29 @@ describe('photo overlay rendering rules', () => {
     const { shouldTile } = await import('./photo-overlay.component');
     expect(['flooring', 'roofing', 'decking'].every(shouldTile)).toBe(true);
     expect(['countertops', 'cabinets', 'sheds', 'paint', 'windows-doors', 'fencing'].some(shouldTile)).toBe(false);
+  });
+});
+
+describe('kitchen cabinets', () => {
+  async function kitchen(attributes: Record<string, string>) {
+    const fixture = TestBed.createComponent(SceneComponent);
+    fixture.componentRef.setInput('scene', 'kitchen');
+    fixture.componentRef.setInput('product', product('CAB', 'cabinets', { attributes }));
+    await fixture.whenStable();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('paints fronts in the cabinet colour, never tiles the product photo', async () => {
+    const el = await kitchen({ style: 'flat-panel', color: 'Navy' });
+    expect(el.querySelector('[data-surface="cabinets"]')?.getAttribute('fill')).toBe('#1f2f57');
+    expect(el.querySelector('[data-surface="upper-cabinets"]')?.getAttribute('fill')).toBe('#1f2f57');
+    expect(el.querySelector('[data-surface="cabinets"]')?.getAttribute('fill')).not.toContain('url(');
+  });
+
+  it('shaker doors get the recessed frame, flat-panel doors do not', async () => {
+    const count = (el: HTMLElement) => el.querySelectorAll('rect[fill="none"]').length;
+    expect(count(await kitchen({ style: 'shaker', color: 'White' }))).toBe(7);   // 3 upper + 4 base frames
+    TestBed.resetTestingModule();
+    expect(count(await kitchen({ style: 'flat-panel', color: 'White' }))).toBe(0);
   });
 });

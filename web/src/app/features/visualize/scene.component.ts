@@ -4,6 +4,11 @@ import { SceneId, placementFor, swatchFor } from './scene';
 
 let nextId = 0;
 
+function isDark(hex: string): boolean {
+  const n = parseInt(hex.slice(1), 16);
+  return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 110;
+}
+
 /**
  * A default scene (2l) with the selected product applied to its surface. Pure SVG: no photo needed,
  * works for every category that has a scene. Surfaces the product doesn't cover get neutral
@@ -23,15 +28,27 @@ let nextId = 0;
         @case ('kitchen') {
           <rect width="800" height="500" fill="#efe9dd" />
           <rect x="430" y="60" width="200" height="140" fill="#cfe1ea" stroke="#fffdf8" stroke-width="10" />
-          <rect x="60" y="40" width="330" height="150" rx="4" [attr.fill]="on('cabinets') ? fill() : '#e9e4d8'" stroke="#d6cdb8" stroke-width="3" data-surface="upper-cabinets" />
+          <!-- upper cabinets: 3 doors, same finish as the base cabinets -->
+          <rect x="60" y="40" width="330" height="150" rx="4" [attr.fill]="cabinetFace()" stroke="#d6cdb8" stroke-width="3" data-surface="upper-cabinets" />
+          @for (x of [60, 170, 280]; track x) {
+            <rect [attr.x]="x + 8" y="48" width="94" height="134" rx="3" [attr.fill]="cabinetFace()" [attr.stroke]="cabinetEdge()" stroke-width="3" />
+            @if (shaker()) {
+              <rect [attr.x]="x + 20" y="60" width="70" height="110" fill="none" [attr.stroke]="cabinetEdge()" stroke-width="3" />
+            }
+            <rect [attr.x]="x + 88" y="140" width="6" height="26" rx="3" fill="#b9a77e" />
+          }
           <rect x="60" y="250" width="680" height="60" fill="#e3dccc" />
           <!-- countertop: top surface + front edge -->
           <polygon points="40,300 760,300 740,270 60,270" [attr.fill]="on('countertop') ? fill() : '#ddd8cc'" data-surface="countertop" />
           <rect x="40" y="300" width="720" height="22" [attr.fill]="on('countertop') ? fill() : '#cfc9bb'" data-surface="countertop-edge" />
           <rect x="40" y="300" width="720" height="22" fill="#000" opacity=".12" />
-          <rect x="60" y="322" width="680" height="168" [attr.fill]="on('cabinets') ? fill() : '#f4f1ea'" stroke="#d6cdb8" stroke-width="3" data-surface="cabinets" />
+          <!-- base cabinets: drawn in the product's colour and door style (a product photo can't tile as fronts) -->
+          <rect x="60" y="322" width="680" height="168" [attr.fill]="cabinetFace()" stroke="#d6cdb8" stroke-width="3" data-surface="cabinets" />
           @for (x of [60, 230, 400, 570]; track x) {
-            <rect [attr.x]="x + 10" y="332" width="150" height="148" fill="none" stroke="#14213d" stroke-opacity=".15" stroke-width="3" />
+            <rect [attr.x]="x + 10" y="332" width="150" height="148" rx="3" [attr.fill]="cabinetFace()" [attr.stroke]="cabinetEdge()" stroke-width="3" />
+            @if (shaker()) {
+              <rect [attr.x]="x + 26" y="348" width="118" height="116" fill="none" [attr.stroke]="cabinetEdge()" stroke-width="3" />
+            }
             <rect [attr.x]="x + 135" y="390" width="8" height="34" rx="3" fill="#b9a77e" />
           }
         }
@@ -110,6 +127,12 @@ export class SceneComponent {
   protected readonly fill = computed(() => `url(#${this.patternId})`);
   protected readonly swatch = computed(() => swatchFor(this.product()));
   protected readonly label = computed(() => `${this.product().name}, shown in a ${this.scene().replace('-', ' ')} scene`);
+
+  /** Cabinet fronts: the product's colour when cabinets are shown, a neutral otherwise. */
+  protected readonly cabinetFace = computed(() => (this.on('cabinets') ? swatchFor(this.product()) : '#f4f1ea'));
+  /** Door edges: a darker line on light doors, a lighter one on dark doors, so panels read on both. */
+  protected readonly cabinetEdge = computed(() => (isDark(this.cabinetFace()) ? 'rgba(255,255,255,.22)' : 'rgba(20,33,61,.18)'));
+  protected readonly shaker = computed(() => this.on('cabinets') && this.product().attributes['style'] === 'shaker');
 
   protected on(surface: string): boolean {
     return this.placement()?.surface === surface;
