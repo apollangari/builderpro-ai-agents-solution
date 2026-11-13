@@ -64,6 +64,7 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>
         builder.UseSetting("Auth:RequireHttpsMetadata", "false");
         builder.UseSetting("services:me-api:http:0", "http://me-api.test");
         builder.UseSetting("services:identity:http:0", "http://identity.test");
+        builder.UseSetting("services:catalog:http:0", "http://catalog.test");
         builder.UseSetting("Gateway:RateLimits:PublicPerMinute", PublicPerMinute.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         builder.ConfigureTestServices(services =>

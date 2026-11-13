@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    Catalog service: owns PRODUCTS, per tenant (retailer). Read-only API for now (2a).
+    Database-per-service: only this service reads or writes "catalogdb".
+    It does NOT decide which tenant a caller belongs to: it asks the Identity service.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Aspire.Npgsql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/BuilderPro.Security/BuilderPro.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuilderPro.Catalog.Api.Tests" />
+  </ItemGroup>
+</Project>

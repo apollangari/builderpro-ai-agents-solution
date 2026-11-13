@@ -44,6 +44,22 @@ public sealed class GatewayRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task Catalog_route_requires_a_token_and_forwards_to_the_catalog_service()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync("/api/catalog/products")).StatusCode);
+        Assert.Empty(_factory.Backend.Received);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-User", "alice");
+        var response = await client.GetAsync("/api/catalog/products");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var forwarded = Assert.Single(_factory.Backend.Received);
+        Assert.Equal("catalog.test", forwarded.RequestUri!.Host);
+        Assert.Equal("/api/catalog/products", forwarded.RequestUri.AbsolutePath);
+    }
+
+    [Fact]
     public async Task Unknown_routes_are_not_forwarded()
     {
         var response = await _factory.CreateClient().GetAsync("/api/not-a-route");

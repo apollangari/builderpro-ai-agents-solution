@@ -16,14 +16,14 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 1c | YARP gateway in front |
 | 1d | Identity service, claims normalisation, memberships |
 | 1x | Aspire 13.6.5 + ServiceDiscovery 11.0.0 (security advisories, restore fix) |
+| 0a | This roadmap; README stack version |
+| 0b | `ASPIRE010` resolved: keep the NuGet-pinned dashboard, warning suppressed with a reason |
+| 2a | Catalog service: tenant-scoped products, tenant resolved by Identity ([LEARN](learn/02a-catalog-service.md)) |
 
 ## Next
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 0a | This roadmap; README stack version | Merged |
-| 0b | Resolve the `ASPIRE010` build warning | Build has 0 warnings |
-| 2a | **Catalog service skeleton**: own DB (`catalogdb`), tenant-scoped `GET /api/catalog/products` through the gateway, seeded in Development | Endpoint returns only the caller's tenant's products; tests cover cross-tenant isolation |
 | 2b | **Catalog in Angular**: product list page behind login | Alice sees her retailer's products |
 | 2c | **Pricing as pure domain code**: `Quote` from product lines + quantities, money as decimal with currency, rounding rules in one place | Unit tests for totals, rounding and invalid input; no HTTP yet |
 | 2d | **Quote API**: `POST /api/quotes` (validate, price, persist) | Integration tests; same request → same price |

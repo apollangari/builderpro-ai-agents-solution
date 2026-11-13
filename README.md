@@ -36,6 +36,7 @@ src/BuildingBlocks/             shared building blocks (Security: generic OIDC/J
 src/Gateway/                    YARP gateway: the only door for /api/*
 src/Services/Me/                tiny API: /api/auth-config (public), /api/me (needs a token)
 src/Services/Identity/          tenant memberships (own Postgres database: identitydb)
+src/Services/Catalog/           products per tenant (own Postgres database: catalogdb)
 infra/keycloak/                 local identity provider realm (dev only)
 tests/                          xUnit tests per service
 web/                            Angular 22 app (standalone, signals, zoneless)
@@ -50,6 +51,7 @@ docs/                           setup, branching, learning guides, ADRs
 | 1b | Keycloak + Angular login + API validates the token | ✅ | [docs/learn/01b-keycloak-login.md](docs/learn/01b-keycloak-login.md) |
 | 1c | YARP gateway in front | ✅ | [docs/learn/01c-yarp-gateway.md](docs/learn/01c-yarp-gateway.md) |
 | 1d | Identity service + claims normalisation + memberships | ✅ | [docs/learn/01d-identity-memberships.md](docs/learn/01d-identity-memberships.md) |
+| 2a | Catalog service: products per tenant, tenant resolved by Identity | ✅ | [docs/learn/02a-catalog-service.md](docs/learn/02a-catalog-service.md) |
 
 ## How we work
 
