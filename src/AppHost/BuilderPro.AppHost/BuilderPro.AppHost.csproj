@@ -1,0 +1,21 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.0">
+  <!--
+    The AppHost is a .NET program whose only job is to describe and start the
+    whole system locally: services, databases, identity, the Angular app.
+    Run it (F5 / `dotnet run`) and open the Aspire dashboard it prints.
+    The SDK version here MUST match $(AspireVersion) in Directory.Packages.props.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>builderpro-apphost</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Services/Me/BuilderPro.Me.Api/BuilderPro.Me.Api.csproj" />
+    <ProjectReference Include="../../Gateway/BuilderPro.Gateway/BuilderPro.Gateway.csproj" />
+    <ProjectReference Include="../../Services/Identity/BuilderPro.Identity.Api/BuilderPro.Identity.Api.csproj" />
+  </ItemGroup>
+</Project>

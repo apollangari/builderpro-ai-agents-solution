@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    The single front door for /api/*. Adapted from builderpro-ai-platform/platform/gateway:
+    same ideas (auth at the edge, tiered per-IP rate limits, Kestrel limits, correlation ids),
+    minus the Docker env-var workarounds: Aspire service discovery resolves destinations.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Yarp.ReverseProxy" />
+    <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../ServiceDefaults/BuilderPro.ServiceDefaults/BuilderPro.ServiceDefaults.csproj" />
+    <ProjectReference Include="../../BuildingBlocks/BuilderPro.Security/BuilderPro.Security.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuilderPro.Gateway.Tests" />
+  </ItemGroup>
+</Project>
