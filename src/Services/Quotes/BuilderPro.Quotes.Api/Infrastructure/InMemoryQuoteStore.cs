@@ -15,6 +15,29 @@ public sealed class InMemoryQuoteStore : IQuoteStore
         return Task.CompletedTask;
     }
 
+    public Task<Quote> IssueAsync(Quote quote, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            var next = _rows.Where(q => q.TenantId == quote.TenantId && q.Issue is not null).Select(q => q.Issue!.Number).DefaultIfEmpty(1000).Max() + 1;
+            var numbered = quote with { Issue = quote.Issue! with { Number = next } };
+            _rows.Add(numbered);
+            return Task.FromResult(numbered);
+        }
+    }
+
+    public Task<bool> AcceptAsync(string tenantId, string customerId, Guid id, DateTimeOffset at, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            var i = _rows.FindIndex(q => q.Id == id && q.TenantId == tenantId && q.CustomerId == customerId
+                                         && q.Status == "issued" && q.Issue is not null && q.Issue.ValidUntil > at);
+            if (i < 0) return Task.FromResult(false);
+            _rows[i] = _rows[i] with { Status = "accepted", Issue = _rows[i].Issue! with { AcceptedAt = at } };
+            return Task.FromResult(true);
+        }
+    }
+
     public Task<Quote?> FindAsync(string tenantId, string? customerId, Guid id, CancellationToken ct)
     {
         lock (_gate) return Task.FromResult(Visible(tenantId, customerId).FirstOrDefault(q => q.Id == id));

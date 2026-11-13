@@ -106,6 +106,7 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Now = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
     public InMemoryQuoteStore Store { get; } = new();
+    public InMemoryProjectStore Projects { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCatalog Catalog { get; }
     public FakeTimeProvider Clock { get; } = new(Now);
@@ -121,6 +122,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
         {
             s.RemoveAll<IQuoteStore>();
             s.AddSingleton<IQuoteStore>(Store);
+            s.RemoveAll<IProjectStore>();
+            s.AddSingleton<IProjectStore>(Projects);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
             s.RemoveAll<ICatalogPrices>();
@@ -590,4 +593,155 @@ public sealed class GuidedQuoteApiTests(QuotesFactory f) : IClassFixture<QuotesF
         var r = await _f.As("bob").PostAsJsonAsync("/api/quotes/guided", Body());   // read-only staff
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
+}
+
+/// <summary>2n-f: projects keep answers, re-price on read, issue numbered quotes, and only the customer accepts.</summary>
+public sealed class ProjectApiTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    private static readonly object CompleteAnswers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-OGEE" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private async Task<ProjectDto> NewProject(string sub = "alice")
+    {
+        var r = await _f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701", title = "Kitchen countertops" });
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<ProjectDto>())!;
+    }
+
+    private async Task<ProjectDto> Put(Guid id, object answers, string sub = "alice") =>
+        (await (await _f.As(sub).PutAsJsonAsync($"/api/projects/{id}/answers", answers)).Content.ReadFromJsonAsync<ProjectDto>())!;
+
+    [Fact]
+    public async Task A_project_moves_from_discover_to_configure_and_reprices_its_answers_on_every_read()
+    {
+        var p = await NewProject();
+        Assert.Equal(("discover", "62701", "Kitchen countertops"), (p.Stage, p.Zip, p.Title));
+        Assert.Null(p.Preview);
+
+        var configured = await Put(p.Id, CompleteAnswers);
+        Assert.Equal("configure", configured.Stage);
+        Assert.True(configured.Preview!.Complete);
+        Assert.Equal(38.84m, configured.Preview.Measurement.Values["sqft"]);
+
+        var read = (await _f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+        Assert.Equal(configured.Preview.Total, read.Preview!.Total);
+        Assert.DoesNotContain("89", read.Answers.GetRawText());   // answers only, never prices
+    }
+
+    [Fact]
+    public async Task Issuing_numbers_the_quote_and_holds_it_14_days()
+    {
+        var p = await NewProject();
+        await Put(p.Id, CompleteAnswers);
+
+        var issued = (await (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null)).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal("quote", issued.Stage);
+        Assert.True(issued.Quote!.Number > 1000);
+        Assert.Equal(QuotesFactory.Now.AddDays(14), issued.Quote.ValidUntil);
+        Assert.True(issued.Quote.Current);
+        Assert.Equal(issued.Preview!.Total, issued.Quote.Total);
+
+        var again = (await (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null)).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(issued.Quote.Number + 1, again.Quote!.Number);   // numbers never repeat within a store
+    }
+
+    [Fact]
+    public async Task An_incomplete_project_cant_be_quoted()
+    {
+        var p = await NewProject();
+        await Put(p.Id, new { sku = "CT-QTZ", measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } }, choices = Array.Empty<object>() });
+        var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("incomplete_quote", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task The_customer_accepts_and_the_project_moves_to_deposit_and_locks()
+    {
+        var p = await NewProject();
+        await Put(p.Id, CompleteAnswers);
+        await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+
+        var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var accepted = (await r.Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(("deposit", "accepted"), (accepted.Stage, accepted.Quote!.Status));
+        Assert.Equal(QuotesFactory.Now, accepted.Quote.AcceptedAt);
+
+        var locked = await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        Assert.Equal(HttpStatusCode.Conflict, locked.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_agent_can_never_accept_even_with_the_customers_token()
+    {
+        var p = await NewProject();
+        await Put(p.Id, CompleteAnswers);
+        await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+
+        var agent = _f.As("alice");
+        agent.DefaultRequestHeaders.Add(AgentCall.Header, "concierge");
+        var r = await agent.PostAsync($"/api/projects/{p.Id}/accept", null);
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Contains("agent_cannot_accept", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_changed_answer_makes_the_quote_outdated_until_reissued()
+    {
+        var p = await NewProject();
+        await Put(p.Id, CompleteAnswers);
+        await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        var changed = await Put(p.Id, new
+        {
+            sku = "CT-QTZ",
+            measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } } } },
+            choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+        });
+        Assert.False(changed.Quote!.Current);
+
+        var r = await _f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Contains("quote_outdated", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task An_expired_quote_cant_be_accepted()
+    {
+        using var f = new QuotesFactory();
+        var p = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        f.Clock.Advance(TimeSpan.FromDays(15));
+
+        var r = await f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Contains("quote_expired", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Projects_are_private_to_their_customer_and_store()
+    {
+        var p = await NewProject();
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("abe").GetAsync($"/api/projects/{p.Id}")).StatusCode);    // another acme customer
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("carol").GetAsync($"/api/projects/{p.Id}")).StatusCode);  // another store
+        Assert.Equal(HttpStatusCode.OK, (await _f.As("bob").GetAsync($"/api/projects/{p.Id}")).StatusCode);          // acme staff may look
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("bob").PostAsync($"/api/projects/{p.Id}/accept", null)).StatusCode); // but never accept
+
+        var mine = await _f.As("alice").GetFromJsonAsync<ProjectSummaryDto[]>("/api/projects");
+        Assert.Contains(mine!, x => x.Id == p.Id);
+        Assert.DoesNotContain((await _f.As("abe").GetFromJsonAsync<ProjectSummaryDto[]>("/api/projects"))!, x => x.Id == p.Id);
+    }
+
+    [Theory]
+    [InlineData("90210", HttpStatusCode.UnprocessableEntity)]
+    [InlineData("nope", HttpStatusCode.BadRequest)]
+    public async Task A_project_needs_a_served_zip(string zip, HttpStatusCode status) =>
+        Assert.Equal(status, (await _f.As("alice").PostAsJsonAsync("/api/projects", new { zip })).StatusCode);
 }

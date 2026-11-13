@@ -33,6 +33,8 @@ public sealed class HttpPlatformApi(IHttpClientFactory factory, IHttpContextAcce
         if (AuthenticationHeaderValue.TryParse(http.Request.Headers[HeaderNames.Authorization], out var auth)) request.Headers.Authorization = auth;
         var pick = http.Request.Headers[TenantHint.Header].ToString();
         if (ClaimsNormalizer.IsIdentifier(pick)) request.Headers.Add(TenantHint.Header, pick);
+        // Every call an agent's tool makes is marked: commit actions (accept, pay, book) refuse it (2n-f).
+        request.Headers.Add(AgentCall.Header, "assistant");
 
         var client = factory.CreateClient(request.RequestUri!.OriginalString.StartsWith("/api/catalog", StringComparison.Ordinal) ? "catalog" : "quotes");
         using var response = await client.SendAsync(request, ct);

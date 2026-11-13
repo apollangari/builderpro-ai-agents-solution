@@ -14,7 +14,8 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
     private const string HeadColumns = """
         id AS Id, tenant_id AS TenantId, customer_id AS CustomerId, created_by AS CreatedBy, status AS Status,
         currency AS Currency, subtotal AS Subtotal, tax_rate AS TaxRate, tax AS Tax, total AS Total, created_at AS CreatedAt,
-        zip AS Zip, guided_request::text AS GuidedRequest
+        zip AS Zip, guided_request::text AS GuidedRequest,
+        number AS Number, valid_until AS ValidUntil, project_id AS ProjectId, accepted_at AS AcceptedAt
         """;
 
     // @customerId NULL = staff: every customer of the tenant.
@@ -57,6 +58,14 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
             ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS guided_request jsonb NULL;
             ALTER TABLE quotes.quote_lines ADD COLUMN IF NOT EXISTS line_group text NULL;
             INSERT INTO quotes.schema_history(version) VALUES (2) ON CONFLICT DO NOTHING;
+
+            -- v3 (2n-f): numbered quotes issued from a project, valid until a date, accepted by the customer.
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS number integer NULL;
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS valid_until timestamptz NULL;
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS project_id uuid NULL;
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS accepted_at timestamptz NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_quotes_number ON quotes.quotes(tenant_id, number) WHERE number IS NOT NULL;
+            INSERT INTO quotes.schema_history(version) VALUES (3) ON CONFLICT DO NOTHING;
             """, cancellationToken: ct));
     }
 
@@ -64,10 +73,40 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+        await InsertAsync(conn, tx, q, ct);
+        await tx.CommitAsync(ct);
+    }
 
+    public async Task<Quote> IssueAsync(Quote q, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        // One numbering at a time per store (transaction-scoped advisory lock), then max + 1.
+        await conn.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_xact_lock(hashtext('quote-number:' || @t))", new { t = q.TenantId }, tx, cancellationToken: ct));
+        var next = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COALESCE(MAX(number), 1000) + 1 FROM quotes.quotes WHERE tenant_id = @t", new { t = q.TenantId }, tx, cancellationToken: ct));
+        var numbered = q with { Issue = q.Issue! with { Number = next } };
+        await InsertAsync(conn, tx, numbered, ct);
+        await tx.CommitAsync(ct);
+        return numbered;
+    }
+
+    public async Task<bool> AcceptAsync(string tenantId, string customerId, Guid id, DateTimeOffset at, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        return await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE quotes.quotes SET status = 'accepted', accepted_at = @at
+            WHERE id = @id AND tenant_id = @tenantId AND customer_id = @customerId AND status = 'issued' AND valid_until > @at
+            """, new { id, tenantId, customerId, at = at.UtcDateTime }, cancellationToken: ct)) == 1;
+    }
+
+    private static async Task InsertAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Quote q, CancellationToken ct)
+    {
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO quotes.quotes(id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at, zip, guided_request)
-            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Status, @Currency, @Subtotal, @TaxRate, @Tax, @Total, @CreatedAt, @Zip, @GuidedRequest::jsonb)
+            INSERT INTO quotes.quotes(id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at, zip, guided_request,
+                                      number, valid_until, project_id, accepted_at)
+            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Status, @Currency, @Subtotal, @TaxRate, @Tax, @Total, @CreatedAt, @Zip, @GuidedRequest::jsonb,
+                    @Number, @ValidUntil, @ProjectId, @AcceptedAt)
             """,
             new
             {
@@ -76,6 +115,8 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
                 Subtotal = q.Priced.Subtotal.Amount, q.Priced.TaxRate, Tax = q.Priced.Tax.Amount, Total = q.Priced.Total.Amount,
                 CreatedAt = q.CreatedAt.UtcDateTime,
                 Zip = q.Guided?.Zip, GuidedRequest = q.Guided?.RequestJson,
+                Number = q.Issue?.Number, ValidUntil = q.Issue?.ValidUntil.UtcDateTime, ProjectId = q.Issue?.ProjectId,
+                AcceptedAt = q.Issue?.AcceptedAt?.UtcDateTime,
             },
             tx, cancellationToken: ct));
 
@@ -91,8 +132,6 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
                 LineGroup = q.Guided?.LineGroups.ElementAtOrDefault(i),
             }),
             tx, cancellationToken: ct));
-
-        await tx.CommitAsync(ct);
     }
 
     public async Task<Quote?> FindAsync(string tenantId, string? customerId, Guid id, CancellationToken ct)
@@ -132,9 +171,14 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
             var guided = h.Zip is null || h.GuidedRequest is null ? null : new GuidedInfo(h.Zip, h.GuidedRequest, [.. rows.Select(l => l.LineGroup ?? "")]);
             return new Quote(h.Id, h.TenantId, h.CustomerId, h.CreatedBy, h.Status,
                 new PricedQuote(priced, M(h.Subtotal), h.TaxRate, M(h.Tax), M(h.Total)),
-                new DateTimeOffset(DateTime.SpecifyKind(h.CreatedAt, DateTimeKind.Utc)), guided);
+                new DateTimeOffset(DateTime.SpecifyKind(h.CreatedAt, DateTimeKind.Utc)), guided,
+                h.Number is int n && h.ValidUntil is DateTime until && h.ProjectId is Guid pid
+                    ? new QuoteIssue(n, Utc(until), pid, h.AcceptedAt is DateTime acc ? Utc(acc) : null)
+                    : null);
         })];
     }
+
+    private static DateTimeOffset Utc(DateTime d) => new(DateTime.SpecifyKind(d, DateTimeKind.Utc));
 
     private sealed class HeadRow
     {
@@ -151,6 +195,10 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         public DateTime CreatedAt { get; init; }   // timestamptz arrives as UTC DateTime
         public string? Zip { get; init; }
         public string? GuidedRequest { get; init; }
+        public int? Number { get; init; }
+        public DateTime? ValidUntil { get; init; }
+        public Guid? ProjectId { get; init; }
+        public DateTime? AcceptedAt { get; init; }
     }
 
     private sealed class LineRow

@@ -17,6 +17,7 @@ if (TenantCacheSetup.HasCache(builder.Configuration)) builder.AddRedisDistribute
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IQuoteStore, PostgresQuoteStore>();
+builder.Services.AddSingleton<IProjectStore, PostgresProjectStore>();   // 2n-f
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
 // Tenant, customer and scopes: asked from the Identity service (LEARN 2a).
@@ -32,6 +33,7 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 await app.Services.GetRequiredService<IQuoteStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IProjectStore>().InitializeAsync(CancellationToken.None);
 
 app.UseExceptionHandler();
 app.UseAuthentication();
@@ -40,6 +42,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapQuoteEndpoints();
 app.MapGuidedQuoteEndpoints();   // 2n-b..e
+app.MapProjectEndpoints();       // 2n-f
 
 app.Run();
 

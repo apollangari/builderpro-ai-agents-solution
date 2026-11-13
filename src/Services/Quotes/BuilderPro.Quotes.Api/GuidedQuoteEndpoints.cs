@@ -68,22 +68,42 @@ public static class GuidedQuoteEndpoints
         if (!tenant.Resolved) return (null, null, null, Problem(tenant.Status, tenant.Code, "Could not determine your tenant."));
         if (!tenant.HasScope(scope)) return (null, null, null, Problem(StatusCodes.Status403Forbidden, "missing_scope", $"This needs the {scope} scope."));
 
+        var outcome = await PriceAsync(request, tenant.TenantId!, http, catalog, config, ct);
+        return outcome.Result is null
+            ? (null, null, null, outcome.ToProblem())
+            : (tenant, outcome.Measurement, outcome.Result, null);
+    }
+
+    /// <summary>What pricing a guided request gave: the priced result, or a status + code + errors (used by projects too).</summary>
+    internal sealed record GuidedOutcome(Measurement? Measurement, GuidedResult? Result, int Status, string? Code, IReadOnlyList<QuoteErrorDto> Errors)
+    {
+        public static GuidedOutcome Fail(int status, string code, string message) => new(null, null, status, code, [new(code, message, null)]);
+
+        public IResult ToProblem() => Code is "invalid_measurements" or "invalid_guided_quote"
+            ? Invalid(Code, Errors)
+            : Problem(Status, Code ?? "error", Errors.FirstOrDefault()?.Message ?? "");
+    }
+
+    /// <summary>Catalog for the ZIP -> measurements -> GuidedQuoteBuilder -> QuotePricer. No tenant/scope checks (callers do them).</summary>
+    internal static async Task<GuidedOutcome> PriceAsync(
+        GuidedQuoteRequest request, string tenantId, HttpContext http, ICatalogPrices catalog, IConfiguration config, CancellationToken ct)
+    {
         var read = await catalog.GetOptionsAsync(http, request.Sku!, request.Zip!, ct);
         if (read.Options is null)
         {
-            return (null, null, null, read.Problem switch
+            return read.Problem switch
             {
-                "invalid_zip" => Problem(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1)."),
-                "zip_not_served" => Problem(StatusCodes.Status422UnprocessableEntity, "zip_not_served", "Your store doesn't serve this ZIP yet."),
-                "unknown_sku" => Invalid("invalid_guided_quote", [new("unknown_sku", $"{request.Sku} is not sold in this ZIP.", null)]),
-                _ => Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced."),
-            });
+                "invalid_zip" => GuidedOutcome.Fail(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1)."),
+                "zip_not_served" => GuidedOutcome.Fail(StatusCodes.Status422UnprocessableEntity, "zip_not_served", "Your store doesn't serve this ZIP yet."),
+                "unknown_sku" => new(null, null, StatusCodes.Status400BadRequest, "invalid_guided_quote", [new("unknown_sku", $"{request.Sku} is not sold in this ZIP.", null)]),
+                _ => GuidedOutcome.Fail(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced."),
+            };
         }
 
         var o = read.Options;
         var measured = Measurements.Measure(o.Measure, request.Measurements);
         if (!measured.Succeeded)
-            return (null, null, null, Invalid("invalid_measurements", [.. measured.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))]));
+            return new(null, null, StatusCodes.Status400BadRequest, "invalid_measurements", [.. measured.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))]);
 
         Money M(decimal amount) => new(amount, o.Product.Currency);
         var built = GuidedQuoteBuilder.Build(new GuidedRequest(
@@ -93,14 +113,14 @@ public static class GuidedQuoteEndpoints
             [.. o.Groups.Select(g => new GuidedGroup(g.Id, g.Step, g.Label, g.Selection, g.Basis, g.Required, g.NoneLabel,
                 [.. g.Options.Select(x => new GuidedOption(x.Sku, x.Name, x.Unit, M(x.Price), x.Included))]))],
             [.. (request.Choices ?? []).Select(c => new GuidedChoice(c.Group, c.Sku, c.Quantity))],
-            QuoteEndpoints.TaxRateFor(tenant.TenantId!, config)));
+            QuoteEndpoints.TaxRateFor(tenantId, config)));
 
         return built.Quote is null
-            ? (null, null, null, Invalid("invalid_guided_quote", [.. built.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))]))
-            : (tenant, measured.Measurement, built, null);
+            ? new(null, null, StatusCodes.Status400BadRequest, "invalid_guided_quote", [.. built.Errors.Select(e => new QuoteErrorDto(e.Code, e.Message, e.Line))])
+            : new(measured.Measurement, built, StatusCodes.Status200OK, null, []);
     }
 
-    private static GuidedQuoteDto ToDto(Measurement m, GuidedResult r)
+    internal static GuidedQuoteDto ToDto(Measurement m, GuidedResult r)
     {
         var q = r.Quote!;
         return new GuidedQuoteDto(

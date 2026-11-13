@@ -253,6 +253,53 @@ public sealed class QuoteStoreTests(PostgresFixture pg)
 }
 
 [Collection(PostgresCollection.Name)]
+public sealed class ProjectAndIssuedQuoteStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Projects_round_trip_and_stay_private()
+    {
+        var store = new PostgresProjectStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);
+        var p = new Project(Guid.NewGuid(), "t-acme", "c-alice", "u-1", "Kitchen", "62701", null, "{}", ProjectStages.Discover, null, T0, T0);
+        await store.CreateAsync(p, default);
+        await store.UpdateAsync(p with { Sku = "CT-QTZ", AnswersJson = """{"choices":[]}""", Stage = ProjectStages.Configure, UpdatedAt = T0.AddHours(1) }, default);
+
+        var found = (await store.FindAsync("t-acme", "c-alice", p.Id, default))!;
+        Assert.Equal(("CT-QTZ", "configure", T0.AddHours(1)), (found.Sku, found.Stage, found.UpdatedAt));
+        Assert.Contains("choices", found.AnswersJson);
+        Assert.Null(await store.FindAsync("t-acme", "c-abe", p.Id, default));
+        Assert.Null(await store.FindAsync("t-globex", null, p.Id, default));
+        Assert.Single(await store.ListAsync("t-acme", null, 10, default));
+    }
+
+    [Fact]
+    public async Task Issued_quotes_are_numbered_per_store_and_accept_only_while_valid()
+    {
+        var quotes = new PostgresQuoteStore(await pg.NewDatabaseAsync());
+        await quotes.InitializeAsync(default);
+        var priced = QuotePricer.Price(new QuoteInput([new QuoteLineInput("CT", "Quartz", "sqft", 30, new Money(89m, "USD"))], 0.0825m)).Quote!;
+        Quote Issued(string tenant) => new(Guid.NewGuid(), tenant, "c-alice", "u-1", "issued", priced, T0,
+            new GuidedInfo("62701", "{}", ["product"]), new QuoteIssue(0, T0.AddDays(14), Guid.NewGuid()));
+
+        var a1 = await quotes.IssueAsync(Issued("t-acme"), default);
+        var a2 = await quotes.IssueAsync(Issued("t-acme"), default);
+        var g1 = await quotes.IssueAsync(Issued("t-globex"), default);
+        Assert.Equal((1001, 1002, 1001), (a1.Issue!.Number, a2.Issue!.Number, g1.Issue!.Number));
+
+        Assert.False(await quotes.AcceptAsync("t-acme", "c-abe", a1.Id, T0, default));              // not theirs
+        Assert.False(await quotes.AcceptAsync("t-acme", "c-alice", a1.Id, T0.AddDays(15), default)); // expired
+        Assert.True(await quotes.AcceptAsync("t-acme", "c-alice", a1.Id, T0.AddDays(1), default));
+        Assert.False(await quotes.AcceptAsync("t-acme", "c-alice", a1.Id, T0.AddDays(1), default));  // only once
+
+        var read = (await quotes.FindAsync("t-acme", "c-alice", a1.Id, default))!;
+        Assert.Equal(("accepted", 1001, T0.AddDays(1)), (read.Status, read.Issue!.Number, read.Issue.AcceptedAt));
+    }
+}
+
+[Collection(PostgresCollection.Name)]
 public sealed class ConsentStoreTests(PostgresFixture pg)
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
