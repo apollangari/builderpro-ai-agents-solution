@@ -21,7 +21,7 @@ public sealed class TestAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    public const string Scheme = "Test";
+    public const string SchemeName = "Test";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -40,8 +40,8 @@ public sealed class TestAuthHandler(
             claims.Add(new Claim("roles", role));
         }
 
-        var identity = new ClaimsIdentity(claims, Scheme, "preferred_username", "roles");
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme)));
+        var identity = new ClaimsIdentity(claims, SchemeName, "preferred_username", "roles");
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
 
@@ -60,10 +60,10 @@ public sealed class MeApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<TimeProvider>(new FakeTimeProvider(Noon));
             services.AddAuthentication(o =>
                 {
-                    o.DefaultAuthenticateScheme = TestAuthHandler.Scheme;
-                    o.DefaultChallengeScheme = TestAuthHandler.Scheme;
+                    o.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                    o.DefaultChallengeScheme = TestAuthHandler.SchemeName;
                 })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ => { });
+                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
         });
     }
 }

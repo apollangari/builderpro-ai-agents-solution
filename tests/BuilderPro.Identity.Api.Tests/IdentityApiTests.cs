@@ -21,7 +21,7 @@ namespace BuilderPro.Identity.Api.Tests;
 public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> o, ILoggerFactory l, UrlEncoder e)
     : AuthenticationHandler<AuthenticationSchemeOptions>(o, l, e)
 {
-    public const string Scheme = "Test";
+    public const string SchemeName = "Test";
     public const string Issuer = "http://idp.test/realms/builderpro";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -30,8 +30,8 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
         var claims = new List<Claim> { new("iss", Issuer), new("sub", sub.ToString()), new("preferred_username", sub.ToString()) };
         if (Request.Headers.TryGetValue("X-Test-Tenant", out var t)) claims.Add(new Claim("tenant_id", t.ToString()));
         claims.AddRange(Request.Headers["X-Test-Roles"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries).Select(r => new Claim("roles", r)));
-        var identity = new ClaimsIdentity(claims, Scheme, "preferred_username", "roles");
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme)));
+        var identity = new ClaimsIdentity(claims, SchemeName, "preferred_username", "roles");
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
 
@@ -52,8 +52,8 @@ public sealed class IdentityFactory : WebApplicationFactory<Program>
             s.AddSingleton<IMembershipStore>(Store);
             s.RemoveAll<TimeProvider>();
             s.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
-            s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.Scheme; a.DefaultChallengeScheme = TestAuthHandler.Scheme; })
-             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ => { });
+            s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })
+             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
         });
     }
 

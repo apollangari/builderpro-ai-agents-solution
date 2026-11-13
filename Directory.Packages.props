@@ -4,19 +4,21 @@
   Upgrading a library = one line in one file, reviewed in one PR.
 
   Aspire rule (from Microsoft's 13.5 release notes): keep the SDK and ALL
-  Aspire.* packages on the SAME version family. Never mix 13.4 and 13.5.
+  Aspire.* packages on the SAME version family. Never mix 13.5 and 13.6.
 -->
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <AspireVersion>13.5.0</AspireVersion>
+    <AspireVersion>13.6.5</AspireVersion>
+    <!-- ServiceDiscovery versions with .NET (11.x), not with Aspire; 11.0.0 supports net10.0. -->
+    <ServiceDiscoveryVersion>11.0.0</ServiceDiscoveryVersion>
   </PropertyGroup>
   <ItemGroup Label="Aspire">
     <PackageVersion Include="Aspire.Hosting.JavaScript" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Npgsql" Version="$(AspireVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(AspireVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="$(AspireVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(ServiceDiscoveryVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="$(ServiceDiscoveryVersion)" />
   </ItemGroup>
   <ItemGroup Label="Platform">
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />

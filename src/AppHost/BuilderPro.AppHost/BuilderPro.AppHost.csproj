@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.5.0">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
   <!--
     The AppHost is a .NET program whose only job is to describe and start the
     whole system locally: services, databases, identity, the Angular app.
