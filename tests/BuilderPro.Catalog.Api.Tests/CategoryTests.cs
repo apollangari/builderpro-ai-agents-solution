@@ -9,6 +9,23 @@ public sealed class CategoryRulesTests
 {
     private static string ThisFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
 
+    /// <summary>
+    /// The repo root, found from two starting points because neither works everywhere:
+    ///  - the test's output folder: inside the repo on CI, but outside when built with --artifacts-path;
+    ///  - this source file's path: real locally, but rewritten to "/_/..." by ContinuousIntegrationBuild on CI.
+    /// </summary>
+    private static DirectoryInfo? RepoRoot()
+    {
+        foreach (var start in new[] { AppContext.BaseDirectory, Path.GetDirectoryName(ThisFile()) ?? "" })
+        {
+            for (var dir = string.IsNullOrEmpty(start) ? null : new DirectoryInfo(start); dir is not null; dir = dir.Parent)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "BuilderPro.slnx"))) return dir;
+            }
+        }
+        return null;
+    }
+
     private static Dictionary<string, string> A(params (string K, string V)[] kv) => kv.ToDictionary(x => x.K, x => x.V);
 
     [Fact]
@@ -58,9 +75,7 @@ public sealed class CategoryRulesTests
     [Fact]
     public void Every_seeded_product_is_valid_and_has_an_image_unless_labour()
     {
-        // From this source file (works wherever the build output goes), up to the repo root.
-        var dir = new FileInfo(ThisFile()).Directory;
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "BuilderPro.slnx"))) dir = dir.Parent;
+        var dir = RepoRoot();
         Assert.NotNull(dir);
         var file = Path.Combine(dir!.FullName, "src", "Services", "Catalog", "BuilderPro.Catalog.Api", "appsettings.Development.json");
         using var json = JsonDocument.Parse(File.ReadAllText(file), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
