@@ -45,7 +45,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable | Done when |
 |---|---|---|
-| 2n-a | **Guided quote: ZIP + category.** Stores define service areas (ZIP codes, grouped into zones); a product can be limited to zones. `/quote/new` starts with ZIP, then category; the picker shows only products sold in that ZIP and category | An unserved ZIP gets "we don't serve that area yet"; a product outside the ZIP's zone never appears or prices |
+| 2n-a | **Guided quote: confirm ZIP, then category.** `/quote/new` asks "Is this project at ZIP 75201?" using the ZIP from the customer's sign-up address; "No" asks for the project's ZIP. Stores keep service areas (ZIP codes, grouped into zones) server-side only; a product can be limited to zones. Then category; the picker shows only products sold in that ZIP and category | Service-area ZIP lists are never sent to the browser; an unserved ZIP gets "we don't serve that area yet"; a product outside the ZIP's zone never appears or prices |
 | 2n-b | **Measurements per category**: countertops as pieces (length x depth, plus backsplash) giving sq ft and finished-edge length; roofs (existing calculator); flooring/decking rooms; fencing run; "each" for sheds, windows, doors. Server-side estimators, quantities only | The wizard never computes a quantity in the browser; each estimator has domain tests |
 | 2n-c | **Add-ons / options per category**: option groups the store configures, e.g. countertop edge profile (per linear ft of finished edge), faucet holes (each), sink (pick a sink product), cooktop cutout. Required/optional, single/multi, priced from the catalog with quantities from the measurements | Options and their quantities come from the server; invalid combinations are rejected by the API |
 | 2n-d | **Protection plans**: per-category plans (e.g. None / 5-year / 10-year), priced flat or as a % of the product + add-ons subtotal, chosen after options | Plan price comes from the pricer; "None" is an explicit choice |
@@ -72,8 +72,9 @@ not a contract: anything past the next two or three rows will be re-cut as we le
   that ZIP and category -> measurements -> add-ons/options (e.g. countertop edge, faucet holes, sinks) ->
   protection plan -> quote. Built as the guided quote 2n-a..e; the assistant (3b) drafts quotes through the
   same steps, asking for the ZIP first. Defaults until the owner says otherwise:
-  - The ZIP is checked against the customer's store's service areas; it does not pick a store (a customer
-    is still signed up through one store's link).
+  - The ZIP starts as the one from the sign-up address; the customer confirms it or enters the project's
+    ZIP. It is checked against the store's service areas (never shown) and does not pick a store (a
+    customer is still signed up through one store's link). A new ZIP is kept on the quote, not the profile.
   - Prices are the same in every ZIP of a store for now; zones only control availability. Tax stays per store.
   - Add-ons and protection plans are catalog items the store maintains, never hard-coded prices.
   - The existing quote builder (2m) stays for staff until 2n-e replaces it for customers.
