@@ -198,4 +198,13 @@ public sealed class IdentityApiTests(IdentityFactory f) : IClassFixture<Identity
         Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
         Assert.Contains("store_not_found", await r.Content.ReadAsStringAsync());
     }
+
+    [Fact]
+    public async Task A_stores_package_comes_with_its_public_info()
+    {
+        var acme = await _f.CreateClient().GetFromJsonAsync<StoreInfoDto>("/api/identity/stores/acme");
+        var globex = await _f.CreateClient().GetFromJsonAsync<StoreInfoDto>("/api/identity/stores/globex");
+        Assert.Equal(["guided", "help-chat", "concierge"], acme!.Features);
+        Assert.Equal(["guided", "help-chat"], globex!.Features);   // no AI concierge in Globex's package
+    }
 }

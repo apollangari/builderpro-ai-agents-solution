@@ -26,12 +26,12 @@ interface Reply {
     <section class="card chat" aria-label="Concierge">
       <div class="head">
         <span class="dot" aria-hidden="true"></span>
-        <h2 class="card-title">Concierge</h2>
-        <span class="muted small">answers instantly · prepares, never accepts</span>
+        <h2 class="card-title" data-testid="panel-title">{{ helpOnly() ? 'Help' : 'Concierge' }}</h2>
+        <span class="muted small">{{ helpOnly() ? 'answers your questions · the steps are yours' : 'answers instantly · prepares, never accepts' }}</span>
       </div>
       <div class="log" #log aria-live="polite" data-testid="panel-log">
         @if (turns().length === 0) {
-          <p class="msg">Hi! Tell me about your project, or ask about anything on this page. I can fill in the steps for you.</p>
+          <p class="msg">{{ helpOnly() ? 'Hi! Ask me anything about the products or the steps on this page.' : 'Hi! Tell me about your project, or ask about anything on this page. I can fill in the steps for you.' }}</p>
         }
         @for (t of turns(); track $index) {
           <p class="msg" [class.user]="t.role === 'user'" [attr.data-testid]="'panel-' + t.role">{{ t.content }}</p>
@@ -77,6 +77,8 @@ export class ConciergePanelComponent {
   readonly projectId = input.required<string>();
   /** Text to start the next message with (e.g. "I have a question about quote Q-1042: "). */
   readonly askText = input<string | null>(null);
+  /** The store's package has the help chat but not the concierge (1h): it answers, it doesn't fill in steps. */
+  readonly helpOnly = input(false);
   readonly projectChanged = output<void>();
 
   protected readonly turns = signal<Turn[]>([]);

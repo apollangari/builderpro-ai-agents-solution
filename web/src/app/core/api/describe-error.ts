@@ -25,6 +25,8 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
       return "That doesn't look like a ZIP code. Enter 5 digits (or a Canadian postal code like K1A 0B1).";
     case 'zip_not_served':
       return "Your store doesn't serve this ZIP yet.";
+    case 'feature_not_included':
+      return "This isn't part of your store's package. You can still use the step-by-step project flow.";
     case 'missing_scope':
       return "Your account can't do this here: starting and saving projects is for the store's customers (403 missing_scope).";
     case 'customer_only':

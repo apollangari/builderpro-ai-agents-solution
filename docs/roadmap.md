@@ -11,6 +11,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable |
 |---|---|
+| 1h | Packages per store: `guided` (always), `help-chat` (answers only), `concierge` (acts on the project), `phone-scheduling` (4b); set per store in Identity, carried by the tenant lookup, enforced in the Assistant (403 `feature_not_included`, help-only tool set), hidden in the web (Home, catalog chat, project chat); Acme full, Globex guided + help ([LEARN](learn/01h-store-packages.md)) |
 | 1a | Walking skeleton: Aspire + Angular → API |
 | 1b | Keycloak login, API validates the token |
 | 1c | YARP gateway in front |
@@ -52,7 +53,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 |---|---|---|
 | 3d | **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
-| 1h | **Packages per store**: a store's package turns on (a) the guided workflow with a **help chat** that only answers questions (no agent acting), and/or (b) the **AI concierge** that works on the project, and/or (c) **AI phone scheduling** (4b). Enforced server-side per tenant (the concierge refuses stores without it; the UI hides what isn't included) | A store without the agent package gets a refusal from the concierge API even if called directly |
 | 1i | **Salesperson login (assisted selling)**: a store role `sales` (staff, scopes to create projects on behalf of customers). The salesperson finds the customer of their store (name, email or phone) or invites a new one (sign-up link by email/text), then runs the same flow for them: ZIP, product, measurements, options, protection, numbered quote. The project belongs to the customer and shows in their My projects; it records "prepared by <salesperson>". The customer accepts and pays the 5 % deposit themselves (link sent by email/text, or on their own device in store) | A salesperson sees only their store's customers; every project/quote they touch records who did it; Accept and payment stay customer-only (a salesperson can't press them for the customer) |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
@@ -70,6 +70,13 @@ panels for the current stage: layout (estimated from photos until measured), the
 (numbered, "priced by the store's pricing engine", valid N days, Accept quote / Ask about this quote).
 Principle shown on the page: *the concierge can prepare things, but never accepts or pays for you.* Built
 as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e (takeover) -> 6a-c.
+
+## Final phase: gaps (after all development work, owner 2026-11-13)
+
+Fixed last, together, once the roadmap above is built: Accept/price hold follows 6a everywhere; the product
+assistant (3a) prices by ZIP; the Measure screen fits without scrolling for big kitchens; the cabinets
+question and plumbing disconnect options; percentage-priced protection plans; and anything else noted
+as "not yet" in the LEARN docs.
 
 ## Decisions
 

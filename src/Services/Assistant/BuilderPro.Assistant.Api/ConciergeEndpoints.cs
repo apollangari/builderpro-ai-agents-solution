@@ -55,6 +55,21 @@ public static class ConciergeEndpoints
         - Plain text for a chat bubble: short sentences, "- " lists. No tables, headings or bold.
         """;
 
+    /// <summary>Help chat (1h): for stores whose package has no concierge. Answers only.</summary>
+    public const string HelpInstructions = """
+        You are the help chat of a home-improvement store on the BuilderPro platform. The customer is working
+        through their project page step by step; the current project is given as context.
+        - Answer their questions about the products, the steps (measuring, options, protection) and the
+          quote, using find_products and get_project_steps. Repeat prices exactly as tools return them;
+          prices per unit are before tax.
+        - You can't change anything: you don't fill in steps, get quotes, accept or pay. Tell the customer
+          which step on the page to use instead.
+        - Plain text for a chat bubble: short sentences, "- " lists. No tables, headings or bold.
+        """;
+
+    private static IResult NotIncluded(string detail) =>
+        AssistantEndpoints.Problem(StatusCodes.Status403Forbidden, "feature_not_included", detail);
+
     /// <summary>Added in a project workspace (2n-f): the project replaces the page-held draft.</summary>
     public const string ProjectInstructions = """
         The customer is in their project workspace; the project already has its ZIP. The current project
@@ -130,11 +145,19 @@ public static class ConciergeEndpoints
         if (!tenant.Resolved) return AssistantEndpoints.Problem(tenant.Status, tenant.Code, "Could not determine your store.");
         if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
 
+        // The store's package (1h): the concierge acts only where it's included; a help chat only answers.
+        var concierge = tenant.HasFeature(StoreFeatures.Concierge);
+        var help = tenant.HasFeature(StoreFeatures.HelpChat);
+        if (!concierge && !help) return NotIncluded("Chat isn't part of your store's package.");
+        if (request.Catalog is null && request.ProjectId is null && !concierge) return NotIncluded("The concierge isn't part of your store's package.");
+
         var ledger = new PriceLedger();
         if (request.Catalog is { } catalog) return await CatalogChatAsync(catalog, turns, api, chat.Client, ledger, log, ct);
         var drafts = new DraftLedger();
-        var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId);
-        var instructions = request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;
+        var helpOnly = !concierge;
+        var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId, helpOnly);
+        var instructions = helpOnly ? HelpInstructions
+            : request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;
         var agent = new ChatClientAgent(chat.Client, instructions, "builderpro-concierge", "Guided quote concierge", tools.All());
 
         // What the page knows, as context (not as instructions from the customer).

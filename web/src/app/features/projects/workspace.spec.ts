@@ -4,6 +4,13 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { WorkspacePage } from './workspace.page';
 import { Project } from '../quote/guided';
+import { signal } from '@angular/core';
+import { StoreFeatures } from '../../core/tenant/store-features';
+/** The store's package for the page (1h), without asking the server. */
+function fakeFeatures(concierge = true, help = true) {
+  return { concierge: signal(concierge), helpChat: signal(help), anyChat: signal(concierge || help), known: signal(true), features: signal([]) };
+}
+
 
 const preview = {
   measurement: { kind: 'countertop' as const, values: { sqft: 55.5, edgeFt: 36 }, productBasis: 'sqft' },
@@ -24,8 +31,14 @@ const issued = { id: 'q1', number: 1042, status: 'issued' as const, validUntil: 
 describe('WorkspacePage (2n-f)', () => {
   let http: HttpTestingController;
 
+  let pkg: ReturnType<typeof fakeFeatures>;
+
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [WorkspacePage], providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])] });
+    pkg = fakeFeatures();
+    TestBed.configureTestingModule({
+      imports: [WorkspacePage],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: StoreFeatures, useValue: pkg }],
+    });
     http = TestBed.inject(HttpTestingController);
   });
   afterEach(() => http.verify());
@@ -88,5 +101,19 @@ describe('WorkspacePage (2n-f)', () => {
     const el = await open(project({ stage: 'quote', quote: { ...issued, current: false } }));
     expect(el.querySelector('[data-testid="outdated"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="accept-quote"]')).toBeNull();
+  });
+
+  it('a help-only store shows a Help chat; a guided-only store shows no chat', async () => {
+    pkg.concierge.set(false);
+    const help = await open(project());
+    expect(help.querySelector('[data-testid="panel-title"]')?.textContent).toContain('Help');
+  });
+
+  it('a guided-only store has no chat column', async () => {
+    pkg.concierge.set(false);
+    pkg.helpChat.set(false);
+    pkg.anyChat.set(false);
+    const el = await open(project());
+    expect(el.querySelector('bp-concierge-panel')).toBeNull();
   });
 });

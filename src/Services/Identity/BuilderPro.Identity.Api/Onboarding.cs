@@ -13,6 +13,8 @@ public sealed class StoreOptions
     public string TenantId { get; set; } = "";
     public string Name { get; set; } = "";
     public bool SignupEnabled { get; set; }
+    /// <summary>The store's package (1h): guided, help-chat, concierge, phone-scheduling. Empty = default package.</summary>
+    public string[]? Features { get; set; }
 }
 
 public sealed record JoinStoreRequest(string? Store);

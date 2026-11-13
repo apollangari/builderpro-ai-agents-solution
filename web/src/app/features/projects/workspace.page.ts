@@ -1,4 +1,4 @@
-import { Component, computed, effect, input, linkedSignal, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, linkedSignal, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
@@ -7,6 +7,7 @@ import { GuidedStepsComponent } from '../quote/guided-steps.component';
 import { GROUP_TITLES, GuidedLine, Project, STAGES, layoutSketch } from '../quote/guided';
 import { ConciergePanelComponent } from './concierge-panel.component';
 import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tracker.component';
+import { StoreFeatures } from '../../core/tenant/store-features';
 
 /**
  * The project workspace (2n-f), the owner's mockup: stage rail, the concierge beside the work,
@@ -32,8 +33,10 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
 
         <bp-progress-tracker [steps]="journey()" [current]="locked() ? 'deposit' : currentGroup()" (selected)="goTo($event)" />
 
-        <div class="layout">
-          <bp-concierge-panel class="chat" [projectId]="p.id" [askText]="askText()" (projectChanged)="refresh()" />
+        <div class="layout" [class.no-chat]="!features.anyChat()">
+          @if (features.anyChat()) {
+            <bp-concierge-panel class="chat" [projectId]="p.id" [askText]="askText()" [helpOnly]="!features.concierge()" (projectChanged)="refresh()" />
+          }
 
           <div class="work">
             <p class="selection" data-testid="selection-card">
@@ -148,6 +151,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
     .rail li.current { background: var(--bp-accent); color: var(--bp-on-accent); border-color: var(--bp-accent); font-weight: 600; }
     .layout { display: grid; gap: 1rem; grid-template-columns: minmax(17rem, 1fr) minmax(0, 2.6fr); align-items: stretch; }
     @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+    .layout.no-chat { grid-template-columns: 1fr; }
     .work { display: grid; gap: 1rem; }
     .selection { margin: 0; }
     .tabs { display: flex; gap: .35rem; flex-wrap: wrap; border-bottom: 1px solid var(--bp-border); }
@@ -177,6 +181,9 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
   `,
 })
 export class WorkspacePage {
+  /** The store's package (1h): concierge, help-only chat, or none. */
+  protected readonly features = inject(StoreFeatures);
+
   /** Bound from the route (/projects/:id). */
   readonly id = input.required<string>();
 

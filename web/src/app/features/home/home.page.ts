@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
+import { StoreFeatures } from '../../core/tenant/store-features';
 
 /** One centred card: what BuilderPro is, and the next step for this visitor. */
 @Component({
@@ -17,7 +18,9 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
         @if (isAuthenticated()) {
           <div class="actions" data-testid="home-signed-in">
             <a routerLink="/quote/new" class="btn btn-primary" data-testid="start-guided">Start a project</a>
-            <a routerLink="/assistant" class="btn" data-testid="start-concierge">Plan it with the concierge</a>
+            @if (features.concierge()) {
+              <a routerLink="/assistant" class="btn" data-testid="start-concierge">Plan it with the concierge</a>
+            }
           </div>
           <p class="hint"><a routerLink="/projects">Continue a project</a></p>
         } @else {
@@ -44,4 +47,6 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 export class HomePage {
   private readonly oidc = inject(OidcSecurityService);
   protected readonly isAuthenticated = computed(() => this.oidc.authenticated().isAuthenticated);
+  /** The store's package (1h): the concierge path only when it's included. */
+  protected readonly features = inject(StoreFeatures);
 }

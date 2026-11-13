@@ -46,7 +46,7 @@ public sealed class DraftLedger
 /// Feet + inches are converted to inches here, in code, so the model never does arithmetic.
 /// Every result goes through the turn's PriceLedger first (the price guard).
 /// </summary>
-public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts, Guid? projectId = null)
+public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts, Guid? projectId = null, bool helpOnly = false)
 {
     /// <summary>Set when a project tool changed the project this turn (the page re-reads it).</summary>
     public bool ProjectChanged { get; private set; }
@@ -55,7 +55,14 @@ public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLe
     /// Without a project: price a draft the page keeps (3b). In a project (2n-f): save answers to it and,
     /// when complete, issue its numbered quote. Never accept: there is no tool, and the API refuses agents.
     /// </summary>
-    public IList<AITool> All() => projectId is null
+    public IList<AITool> All() => helpOnly
+        ?
+        [
+            // Help chat (1h): answers questions about the products and steps; changes nothing.
+            AIFunctionFactory.Create(FindProductsAsync, "find_products"),
+            AIFunctionFactory.Create(GetProjectStepsAsync, "get_project_steps"),
+        ]
+        : projectId is null
         ?
         [
             AIFunctionFactory.Create(CheckZipAsync, "check_zip"),

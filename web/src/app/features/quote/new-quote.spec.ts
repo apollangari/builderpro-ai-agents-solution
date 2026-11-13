@@ -5,6 +5,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { Router, provideRouter } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { NewQuotePage } from './new-quote.page';
+import { StoreFeatures } from '../../core/tenant/store-features';
+/** The store's package for the page (1h), without asking the server. */
+function fakeFeatures(concierge = true, help = true) {
+  return { concierge: signal(concierge), helpChat: signal(help), anyChat: signal(concierge || help), known: signal(true), features: signal([]) };
+}
+
 
 const CATEGORIES = [
   { id: 'countertops', name: 'Countertops', defaultUnit: 'sqft', scene: 'kitchen', attributes: [], typical: null },
@@ -26,6 +32,7 @@ describe('NewQuotePage (one step per screen)', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: OidcSecurityService, useValue: { userData: signal({ userData: postalCode ? { postal_code: postalCode } : {} }) } },
+        { provide: StoreFeatures, useValue: fakeFeatures() },
       ],
     });
     http = TestBed.inject(HttpTestingController);

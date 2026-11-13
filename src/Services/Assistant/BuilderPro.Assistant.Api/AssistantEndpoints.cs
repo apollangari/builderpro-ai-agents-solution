@@ -59,6 +59,8 @@ public static class AssistantEndpoints
         // Same gate as every other service: a member of a store, or the platform's refusal.
         var tenant = await tenants.ResolveAsync(http, ct);
         if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your store.");
+        if (!tenant.HasFeature(StoreFeatures.HelpChat) && !tenant.HasFeature(StoreFeatures.Concierge))
+            return Problem(StatusCodes.Status403Forbidden, "feature_not_included", "Chat isn't part of your store's package.");
 
         if (chat.Client is null) return Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
 

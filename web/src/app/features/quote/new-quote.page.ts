@@ -7,6 +7,7 @@ import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource } from '../catalog/catalog.api';
 import { applyPicker, categoryTabs, filterGroups, keyAttributes } from '../catalog/picker';
 import { CatalogChatComponent, CatalogFilter } from './catalog-chat.component';
+import { StoreFeatures } from '../../core/tenant/store-features';
 import { Project } from './guided';
 import { ProgressTrackerComponent } from '../../shared/progress-tracker.component';
 
@@ -103,8 +104,10 @@ type Step = 'zip' | 'type' | 'product';
                 <span aria-hidden="true">📍</span> ZIP {{ servedZip() }} <span class="change">Change</span>
               </button>
             </div>
-            <div class="browse">
-              <bp-catalog-chat [zip]="servedZip()!" [category]="category()!" [categoryName]="typeName()" (filtered)="chatFilter.set($event)" />
+            <div class="browse" [class.no-chat]="!features.anyChat()">
+              @if (features.anyChat()) {
+                <bp-catalog-chat [zip]="servedZip()!" [category]="category()!" [categoryName]="typeName()" (filtered)="chatFilter.set($event)" />
+              }
               <div class="catalog">
                 @if (filterGroupsHere().length || chatFilter()) {
                   <div class="filters" data-testid="filters">
@@ -173,6 +176,7 @@ type Step = 'zip' | 'type' | 'product';
     .zip-pill .change { color: var(--bp-accent); font-weight: 400; text-decoration: underline; }
     .browse { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: stretch; }
     @media (max-width: 900px) { .browse { grid-template-columns: 1fr; } }
+    .browse.no-chat { grid-template-columns: 1fr; }
     .catalog { display: grid; gap: .75rem; }
     .filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .filter { display: flex; align-items: center; gap: .4rem; font-size: .9rem; color: var(--bp-ink-muted); }
@@ -214,6 +218,8 @@ type Step = 'zip' | 'type' | 'product';
 export class NewQuotePage {
   private readonly oidc = inject(OidcSecurityService);
   private readonly router = inject(Router);
+  /** The store's package (1h): the chat beside the catalog only when a chat is included. */
+  protected readonly features = inject(StoreFeatures);
 
   protected readonly stepLabels = [
     { id: 'zip', label: 'ZIP' },

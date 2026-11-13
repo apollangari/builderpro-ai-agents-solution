@@ -36,9 +36,14 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
 public sealed class FakeTenants : ITenantLookup
 {
     public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) =>
-        Task.FromResult(http.User.FindFirst("sub")!.Value == "erin"
-            ? TenantLookup.Fail(StatusCodes.Status403Forbidden, "no_membership")
-            : TenantLookup.Ok("t-acme", ["quotes.read"], "c-alice"));
+        Task.FromResult(http.User.FindFirst("sub")!.Value switch
+        {
+            "erin" => TenantLookup.Fail(StatusCodes.Status403Forbidden, "no_membership"),
+            // 1h packages: a store with the help chat only, and one with the guided workflow only.
+            "gail" => TenantLookup.Ok("t-globex", ["quotes.read"], "c-gail", [StoreFeatures.Guided, StoreFeatures.HelpChat]),
+            "nick" => TenantLookup.Ok("t-nochat", ["quotes.read"], "c-nick", [StoreFeatures.Guided]),
+            _ => TenantLookup.Ok("t-acme", ["quotes.read"], "c-alice"),
+        });
 }
 
 /// <summary>Stands in for Catalog and Quotes.</summary>
@@ -611,5 +616,67 @@ public sealed class ConciergeCatalogTests
         Assert.True(CatalogFilterTools.Matches(p, new Dictionary<string, string> { ["color"] = "maple" }, null, 50, ["block"]));
         Assert.False(CatalogFilterTools.Matches(p, new Dictionary<string, string> { ["color"] = "white" }, null, null, []));
         Assert.False(CatalogFilterTools.Matches(p, new Dictionary<string, string>(), 50, null, []));
+    }
+}
+
+/// <summary>1h: the store's package decides what the chat may do; enforced here, not only in the page.</summary>
+public sealed class PackageTests
+{
+    private static readonly Guid ProjectId = Guid.Parse("6b8e8645-fe5c-4041-84f3-2504f9ce327c");
+
+    private static AssistantFactory Factory()
+    {
+        var f = new AssistantFactory();
+        f.Platform.Responses[$"GET /api/projects/{ProjectId}"] = new { id = ProjectId, stage = "configure", preview = new { total = 2408.56m } };
+        f.Model.Tool = "";
+        f.Model.FinalText = "Use the Options step to pick your edge.";
+        return f;
+    }
+
+    private static Task<HttpResponseMessage> Talk(AssistantFactory f, string sub, object body) =>
+        f.As(sub).PostAsJsonAsync("/api/assistant/concierge", body);
+
+    private static object Msg(string text) => new[] { new { role = "user", content = text } };
+
+    [Fact]
+    public async Task A_help_chat_store_answers_on_the_project_but_has_no_tools_that_change_it()
+    {
+        using var f = Factory();
+        var r = await Talk(f, "gail", new { messages = Msg("Can you fill in the edge for me?"), projectId = ProjectId });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal(["find_products", "get_project_steps"], f.Model.LastToolNames);
+        Assert.Contains("You can't change anything", f.Model.LastInstructions);
+        Assert.False((await r.Content.ReadFromJsonAsync<ConciergeReply>())!.ProjectChanged);
+    }
+
+    [Fact]
+    public async Task A_help_chat_store_gets_no_concierge_draft_but_can_filter_the_catalog()
+    {
+        using var f = Factory();
+        var draft = await Talk(f, "gail", new { messages = Msg("Quote me a countertop") });
+        Assert.Equal(HttpStatusCode.Forbidden, draft.StatusCode);
+        Assert.Contains("feature_not_included", await draft.Content.ReadAsStringAsync());
+
+        f.Platform.Responses["GET /api/catalog/categories"] = Array.Empty<object>();
+        var catalog = await Talk(f, "gail", new { messages = Msg("white quartz"), catalog = new { zip = "75078", category = "countertops" } });
+        Assert.Equal(HttpStatusCode.OK, catalog.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_guided_only_store_has_no_chat_at_all_and_the_model_is_never_called()
+    {
+        using var f = Factory();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Talk(f, "nick", new { messages = Msg("Hi"), projectId = ProjectId })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Talk(f, "nick", new { messages = Msg("Hi"), catalog = new { zip = "75078", category = "countertops" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("nick").PostAsJsonAsync("/api/assistant/chat", new { messages = Msg("Hi") })).StatusCode);
+        Assert.Equal(0, f.Model.Calls);
+    }
+
+    [Fact]
+    public async Task A_full_package_store_keeps_the_concierge_tools()
+    {
+        using var f = Factory();
+        await Talk(f, "alice", new { messages = Msg("Hi"), projectId = ProjectId });
+        Assert.Contains("save_answers", f.Model.LastToolNames);
     }
 }

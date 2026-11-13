@@ -34,7 +34,7 @@ public static class TenantCacheKeys
 public sealed class CachingTenantLookup(
     ITenantLookup inner, IDistributedCache cache, AuthOptions auth, TimeSpan ttl, ILogger<CachingTenantLookup> log) : ITenantLookup
 {
-    private sealed record Entry(string TenantId, string? CustomerId, string[] Scopes);
+    private sealed record Entry(string TenantId, string? CustomerId, string[] Scopes, string[]? Features = null);
 
     public async Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct)
     {
@@ -48,7 +48,7 @@ public sealed class CachingTenantLookup(
             var bytes = await cache.GetAsync(key, ct);
             if (bytes is not null && JsonSerializer.Deserialize<Entry>(bytes) is { } hit)
             {
-                return TenantLookup.Ok(hit.TenantId, hit.Scopes, hit.CustomerId);
+                return TenantLookup.Ok(hit.TenantId, hit.Scopes, hit.CustomerId, hit.Features);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -61,7 +61,7 @@ public sealed class CachingTenantLookup(
 
         try
         {
-            var entry = new Entry(result.TenantId!, result.CustomerId, [.. result.Scopes]);
+            var entry = new Entry(result.TenantId!, result.CustomerId, [.. result.Scopes], result.Features is null ? null : [.. result.Features]);
             await cache.SetAsync(key, JsonSerializer.SerializeToUtf8Bytes(entry),
                 new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl }, ct);
         }

@@ -6,7 +6,7 @@ namespace BuilderPro.Identity.Api;
 
 public sealed record IdentityMeResponse(
     string UserKey, string? UserName, string? Email, IReadOnlyList<string> Roles,
-    string TenantId, string? CustomerId, IReadOnlyList<string> Scopes, string Source);
+    string TenantId, string? CustomerId, IReadOnlyList<string> Scopes, string Source, IReadOnlyList<string> Features);
 
 public sealed record MembershipDto(
     Guid Id, string TenantId, string UserKey, string? CustomerId, IReadOnlyList<string> Scopes,
@@ -19,7 +19,19 @@ public sealed record RevokeRequest(string? Reason);
 public sealed record MyMembershipDto(string TenantId, string StoreName, string? CustomerId);
 
 /// <summary>GET /api/identity/stores/{id}: what a store's subdomain shows before sign-in (1g).</summary>
-public sealed record StoreInfoDto(string Id, string Name, string TenantId, bool SignupEnabled);
+public sealed record StoreInfoDto(string Id, string Name, string TenantId, bool SignupEnabled, IReadOnlyList<string> Features);
+
+/// <summary>The store's package (1h): Identity:Stores[].Features, else the default package.</summary>
+public static class StorePackage
+{
+    public static IReadOnlyList<string> FeaturesOf(IConfiguration config, string tenantId)
+    {
+        var store = (config.GetSection("Identity:Stores").Get<StoreOptions[]>() ?? []).FirstOrDefault(s => s.TenantId == tenantId);
+        var features = store?.Features is { Length: > 0 } f ? f.Where(x => StoreFeatures.All.Contains(x)).ToList() : [.. StoreFeatures.Default];
+        if (!features.Contains(StoreFeatures.Guided)) features.Insert(0, StoreFeatures.Guided);   // the guided workflow is always there
+        return features;
+    }
+}
 
 public static class IdentityEndpoints
 {
@@ -63,11 +75,11 @@ public static class IdentityEndpoints
         return store is null
             ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "store_not_found", detail: "No store with this address.",
                 extensions: new Dictionary<string, object?> { ["code"] = "store_not_found" })
-            : Results.Ok(new StoreInfoDto(store.Id, store.Name, store.TenantId, store.SignupEnabled));
+            : Results.Ok(new StoreInfoDto(store.Id, store.Name, store.TenantId, store.SignupEnabled, StorePackage.FeaturesOf(config, store.TenantId)));
     }
 
     internal static async Task<IResult> GetMeAsync(
-        HttpContext http, ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, CancellationToken ct)
+        HttpContext http, ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, IConfiguration config, CancellationToken ct)
     {
         // Store picker (1f): the X-BuilderPro-Tenant header is a hint like the token claim, still
         // checked against active memberships by TenantResolver.
@@ -78,7 +90,8 @@ public static class IdentityEndpoints
         {
             TenantResolution.Resolved => Results.Ok(new IdentityMeResponse(
                 user.UserKey, user.UserName, user.Email, user.Roles,
-                result.Membership!.TenantId, result.Membership.CustomerId, result.Membership.Scopes, Source: "membership")),
+                result.Membership!.TenantId, result.Membership.CustomerId, result.Membership.Scopes, Source: "membership",
+                Features: StorePackage.FeaturesOf(config, result.Membership.TenantId))),
             TenantResolution.Ambiguous => Problem(StatusCodes.Status409Conflict, result.Code,
                 "You belong to several tenants and the token doesn't say which one."),
             _ => Problem(StatusCodes.Status403Forbidden, result.Code,

@@ -14,14 +14,21 @@ namespace BuilderPro.Security;
 /// Either the caller's tenant (with the customer and scopes their membership grants), or the HTTP
 /// problem to return instead. CustomerId is set for customers and null for the retailer's staff.
 /// </summary>
-public sealed record TenantLookup(string? TenantId, string? CustomerId, IReadOnlyList<string> Scopes, int Status, string Code)
+public sealed record TenantLookup(string? TenantId, string? CustomerId, IReadOnlyList<string> Scopes, int Status, string Code,
+    IReadOnlyList<string>? Features = null)
 {
     public bool Resolved => TenantId is not null;
 
     public bool HasScope(string scope) => Scopes.Contains(scope, StringComparer.Ordinal);
 
-    public static TenantLookup Ok(string tenantId, IReadOnlyList<string>? scopes = null, string? customerId = null) =>
-        new(tenantId, customerId, scopes ?? [], StatusCodes.Status200OK, "resolved");
+    /// <summary>
+    /// Is this part of the store's package (1h)? Identity always reports the package; null only when a
+    /// caller built the lookup without one (older callers and tests), which means the full package.
+    /// </summary>
+    public bool HasFeature(string feature) => Features is null || Features.Contains(feature, StringComparer.Ordinal);
+
+    public static TenantLookup Ok(string tenantId, IReadOnlyList<string>? scopes = null, string? customerId = null, IReadOnlyList<string>? features = null) =>
+        new(tenantId, customerId, scopes ?? [], StatusCodes.Status200OK, "resolved", features);
 
     public static TenantLookup Fail(int status, string code) => new(null, null, [], status, code);
 }
@@ -101,7 +108,7 @@ public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenant
                 var me = await response.Content.ReadFromJsonAsync<IdentityMe>(ct);
                 if (!ClaimsNormalizer.IsIdentifier(me?.TenantId)) return Unavailable("identity returned no valid tenantId");
                 if (me!.CustomerId is not null && !ClaimsNormalizer.IsIdentifier(me.CustomerId)) return Unavailable("identity returned an invalid customerId");
-                return TenantLookup.Ok(me.TenantId!, me.Scopes ?? [], me.CustomerId);
+                return TenantLookup.Ok(me.TenantId!, me.Scopes ?? [], me.CustomerId, me.Features);
             }
 
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.Conflict)
@@ -142,7 +149,8 @@ public sealed class IdentityTenantLookup(HttpClient http, ILogger<IdentityTenant
     private sealed record IdentityMe(
         [property: JsonPropertyName("tenantId")] string? TenantId,
         [property: JsonPropertyName("customerId")] string? CustomerId,
-        [property: JsonPropertyName("scopes")] string[]? Scopes);
+        [property: JsonPropertyName("scopes")] string[]? Scopes,
+        [property: JsonPropertyName("features")] string[]? Features);
 
     private sealed record IdentityProblem([property: JsonPropertyName("code")] string? Code);
 }
