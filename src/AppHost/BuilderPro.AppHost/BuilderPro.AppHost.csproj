@@ -8,6 +8,14 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <UserSecretsId>builderpro-apphost</UserSecretsId>
+    <!--
+      ASPIRE010: we deliberately keep the dashboard and DCP as NuGet packages instead of the
+      Aspire CLI bundle, so their versions stay pinned in Directory.Packages.props (that pin is
+      what delivered the 13.6.5 security fixes). Revisit when we adopt the Aspire CLI.
+      https://aspire.dev/diagnostics/aspire010/
+    -->
+    <AspireUseCliBundle>false</AspireUseCliBundle>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.JavaScript" />
