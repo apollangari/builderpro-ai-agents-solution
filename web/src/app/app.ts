@@ -74,6 +74,13 @@ interface MyMembership {
         <a routerLink="/me" routerLinkActive="active">Who am I</a>
       </nav>
     </header>
+    @if (notMemberHere(); as store) {
+      <div class="warning host-unknown" role="alert" data-testid="host-not-member">
+        <span>You're signed in, but you're not a customer of {{ store.name }} yet.
+          @if (store.signupEnabled) { <a routerLink="/signup">Join {{ store.name }}</a> }
+        </span>
+      </div>
+    }
     @if (host.unknown()) {
       <div class="warning host-unknown" role="alert" data-testid="host-unknown">
         <span>There's no store at this address. Check the link your retailer sent you.</span>
@@ -158,6 +165,12 @@ export class App {
   protected readonly selected = inject(SelectedStore);
   /** 1g: on a store's subdomain (acme.…) the store comes from the address and the picker is hidden. */
   protected readonly host = inject(HostStore);
+  /** On a store's address while signed in to an account that isn't one of its customers: say so, offer to join. */
+  protected readonly notMemberHere = computed(() => {
+    if (!this.host.info.hasValue() || !this.isAuthenticated() || this.stores.status() !== 'resolved') return null;
+    const store = this.host.info.value()!;
+    return this.stores.value().some((s) => s.tenantId === store.tenantId) ? null : store;
+  });
   protected readonly draft = inject(QuoteDraft);
 
   /** The stores this user belongs to; the picker shows only when there are two or more. */

@@ -20,7 +20,7 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
     case 'multiple_active_memberships':
       return 'You belong to several stores. Choose one with the store picker at the top (409).';
     case 'tenant_not_permitted':
-      return 'Your token names a tenant you are not a member of (403 tenant_not_permitted).';
+      return "You're not a customer of this store, so nothing is shown. Use the store's sign-up link to join.";
     case 'invalid_zip':
       return "That doesn't look like a ZIP code. Enter 5 digits (or a Canadian postal code like K1A 0B1).";
     case 'zip_not_served':
