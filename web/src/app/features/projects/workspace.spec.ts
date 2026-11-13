@@ -49,7 +49,7 @@ describe('WorkspacePage (2n-f)', () => {
     const el = await open(project());
 
     const track = [...el.querySelectorAll('[data-testid="tracker"] li')].map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
-    expect(track).toEqual(['✓ZIP', '✓Project type', '✓Product', 'Measure', 'Quote', 'Deposit', 'Measure visit', 'Install']);
+    expect(track).toEqual(['✓ZIP', '✓Type', '✓Product', 'Measure', 'Quote', 'Deposit', 'Visit', 'Install']);
     expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Measure');
     expect(el.querySelector('[data-testid="layout-card"]')?.textContent).toContain('Estimated');
     expect(el.querySelectorAll('[data-testid="layout-card"] rect').length).toBe(3);

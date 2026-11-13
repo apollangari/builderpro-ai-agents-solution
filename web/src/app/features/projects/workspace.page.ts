@@ -30,7 +30,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
           <a routerLink="/projects" class="btn">My projects</a>
         </header>
 
-        <bp-progress-tracker [steps]="journey()" [current]="locked() ? 'deposit' : page()" (selected)="page.set($event)" />
+        <bp-progress-tracker [steps]="journey()" [current]="locked() ? 'deposit' : currentGroup()" (selected)="goTo($event)" />
 
         <div class="layout">
           <bp-concierge-panel class="chat" [projectId]="p.id" [askText]="askText()" (projectChanged)="refresh()" />
@@ -45,6 +45,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
 
             <!-- One step per screen (owner): Measure, Options, Protection, Quote -->
 
+            @if (subStep()) { <p class="substep" data-testid="substep">{{ subStep() }}</p> }
             <div class="screen" [class.with-sketch]="page() === 'measure'">
               @if (p.sku && !locked()) {
                 <bp-guided-steps [zip]="p.zip" [sku]="p.sku" [projectId]="p.id" [project]="loadedValue()" [page]="page()" (projectChange)="project.set($event)" (screens)="screens.set($event)" />
@@ -157,6 +158,7 @@ import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tra
     .screen.with-sketch { grid-template-columns: minmax(0, 2.4fr) minmax(12rem, 1fr); }
     @media (max-width: 1100px) { .screen.with-sketch { grid-template-columns: 1fr; } }
     .pager { display: flex; justify-content: space-between; gap: .6rem; }
+    .substep { margin: 0; font-weight: 600; color: var(--bp-accent); }
     .card-row { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
     .sketch { width: 100%; max-height: 12rem; }
     .sketch rect { fill: var(--bp-surface-muted); stroke: var(--bp-ink-muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
@@ -188,8 +190,17 @@ export class WorkspacePage {
   protected readonly stageIndex = computed(() => Math.max(0, STAGES.findIndex((s) => s.id === this.project()?.stage)));
 
   /** One screen per step (owner): Measure, then one per option step of this product, then Quote. */
-  protected readonly screens = signal<{ id: string; label: string }[]>([{ id: 'measure', label: 'Measure' }]);
-  protected readonly pages = computed(() => [...this.screens(), { id: 'quote', label: 'Quote' }]);
+  protected readonly screens = signal<{ id: string; label: string; group: string }[]>([{ id: 'measure', label: 'Measure', group: 'measure' }]);
+  protected readonly pages = computed(() => [...this.screens(), { id: 'quote', label: 'Quote', group: 'quote' }]);
+  /** Tracker steps group the screens: every option screen is one "Options" step (owner: no scrolling tracker). */
+  protected readonly currentGroup = computed(() => this.pages().find((p) => p.id === this.page())?.group ?? 'measure');
+  /** "Edge style · 1 of 4" under the Options / Protection heading. */
+  protected readonly subStep = computed(() => {
+    const group = this.currentGroup();
+    const inGroup = this.pages().filter((p) => p.group === group);
+    const i = inGroup.findIndex((p) => p.id === this.page());
+    return inGroup.length > 1 && i >= 0 ? `${inGroup[i].label} · ${i + 1} of ${inGroup.length}` : null;
+  });
   /** The project as last READ from the server: the steps restore from it (e.g. after the concierge saved). */
   protected readonly loadedValue = computed(() => (this.loaded.hasValue() ? this.loaded.value()! : null));
   private readonly stage = computed(() => this.project()?.stage ?? null);
@@ -201,13 +212,26 @@ export class WorkspacePage {
   /** The whole journey in one tracker: done before the project, this project's screens, then what follows the quote. */
   protected readonly journey = computed<TrackerStep[]>(() => [
     { id: 'zip', label: 'ZIP' },
-    { id: 'type', label: 'Project type' },
+    { id: 'type', label: 'Type' },
     { id: 'product', label: 'Product' },
-    ...this.pages().map((p) => ({ ...p, clickable: !this.locked() })),
+    ...[
+      { id: 'measure', label: 'Measure' },
+      { id: 'options', label: 'Options' },
+      { id: 'protection', label: 'Protection' },
+      { id: 'quote', label: 'Quote' },
+    ]
+      .filter((g) => this.pages().some((p) => p.group === g.id))
+      .map((g) => ({ ...g, clickable: !this.locked() })),
     { id: 'deposit', label: 'Deposit' },
-    { id: 'measure-visit', label: 'Measure visit' },
+    { id: 'measure-visit', label: 'Visit' },
     { id: 'install', label: 'Install' },
   ]);
+
+  /** A tracker step opens the first screen of its group. */
+  protected goTo(group: string): void {
+    const first = this.pages().find((p) => p.group === group);
+    if (first) this.page.set(first.id);
+  }
   protected readonly pageIndex = computed(() => this.pages().findIndex((p) => p.id === this.page()));
   /** Accepted: answers can't change, only the quote is shown. */
   protected readonly locked = computed(() => this.project()?.stage === 'deposit');

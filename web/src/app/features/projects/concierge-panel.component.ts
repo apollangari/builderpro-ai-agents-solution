@@ -43,7 +43,7 @@ interface Reply {
         <label class="sr-only" for="panel-input">Message the concierge</label>
         <input id="panel-input" type="text" maxlength="2000" autocomplete="off" placeholder="Ask anything about your project"
                [value]="text()" (input)="text.set($any($event.target).value)" [disabled]="reply.isLoading()" data-testid="panel-input" />
-        <button type="submit" class="btn btn-primary" [disabled]="reply.isLoading() || !text().trim()" data-testid="panel-send">Send</button>
+        <button type="submit" class="send" aria-label="Send" [disabled]="reply.isLoading() || !text().trim()" data-testid="panel-send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2-7-8-1z" /></svg></button>
       </form>
     </section>
   `,
@@ -56,8 +56,12 @@ interface Reply {
     .log { display: grid; gap: .6rem; max-height: 55vh; overflow-y: auto; }
     .msg { margin: 0; max-width: 90%; padding: .65rem .9rem; border-radius: var(--bp-radius-md); background: var(--bp-surface-muted); white-space: pre-wrap; }
     .msg.user { justify-self: end; background: var(--bp-accent); color: var(--bp-on-accent); }
-    .composer { display: flex; gap: .5rem; }
-    .composer input { flex: 1; min-width: 0; min-height: var(--bp-tap); padding: 0 .8rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; }
+    .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: center; }
+    .send { width: 44px; height: 44px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--bp-accent); color: var(--bp-on-accent); cursor: pointer; }
+    .send:disabled { opacity: .45; cursor: default; }
+    .send:focus-visible { outline: 2px solid var(--bp-accent); outline-offset: 2px; }
+    .send svg { width: 20px; height: 20px; fill: currentColor; }
+    .composer input { width: 100%; box-sizing: border-box; min-width: 0; min-height: var(--bp-tap); padding: 0 .8rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; }
   `,
 })
 export class ConciergePanelComponent {

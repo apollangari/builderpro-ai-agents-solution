@@ -216,7 +216,7 @@ export class NewQuotePage {
 
   protected readonly stepLabels = [
     { id: 'zip', label: 'ZIP' },
-    { id: 'type', label: 'Project type' },
+    { id: 'type', label: 'Type' },
     { id: 'product', label: 'Product' },
     { id: 'measure', label: 'Measure' },
     { id: 'options', label: 'Options' },

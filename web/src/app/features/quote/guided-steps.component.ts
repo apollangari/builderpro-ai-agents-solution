@@ -279,7 +279,7 @@ export class GuidedStepsComponent {
   /** Which screen to show: everything (Start a project before 2n-f), or one step per screen (workspace). */
   readonly page = input<string>('all');
   /** The screens this product needs, for the workspace's tabs: Measure, then one per option step. */
-  readonly screens = output<{ id: string; label: string }[]>();
+  readonly screens = output<{ id: string; label: string; group: 'measure' | 'options' | 'protection' }[]>();
   readonly projectChange = output<Project>();
 
   private readonly router = inject(Router);
@@ -380,7 +380,7 @@ export class GuidedStepsComponent {
     });
     effect(() => {
       const o = this.opts();
-      if (o) this.screens.emit([{ id: 'measure', label: 'Measure' }, ...o.groups.map((g) => ({ id: 'group:' + g.id, label: g.label }))]);
+      if (o) this.screens.emit([{ id: 'measure', label: 'Measure', group: 'measure' as const }, ...o.groups.map((g) => ({ id: 'group:' + g.id, label: g.label, group: g.step }))]);
     });
     // Saved: go to My quotes, where it's listed with its ZIP.
     effect(() => {
