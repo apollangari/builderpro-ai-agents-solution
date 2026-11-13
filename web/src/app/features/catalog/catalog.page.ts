@@ -56,6 +56,9 @@ import { Product, productsResource } from './catalog.api';
         <div class="grid">
           @for (p of visible(); track p.sku) {
             <article class="card product" data-testid="product">
+              @if (p.imageUrl) {
+                <img class="thumb" [src]="p.imageUrl" [alt]="p.name" width="400" height="300" loading="lazy" data-testid="product-image" />
+              }
               <div class="top">
                 <span class="badge mono">{{ p.sku }}</span>
                 <span class="unit">{{ p.unit === 'each' ? 'each' : 'per ' + p.unit }}</span>
@@ -93,7 +96,9 @@ import { Product, productsResource } from './catalog.api';
 
     .count { color: var(--bp-ink-muted); font-size: .85rem; margin: 0 0 .9rem; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr)); gap: 1.1rem; }
-    .product { display: flex; flex-direction: column; gap: .55rem; }
+    .product { display: flex; flex-direction: column; gap: .55rem; padding-top: 0; overflow: hidden; }
+    .thumb { display: block; width: calc(100% + 40px); margin: 0 -20px .4rem; height: auto; aspect-ratio: 4 / 3; object-fit: cover; background: var(--bp-surface-muted); border-bottom: 1px solid var(--bp-border); }
+    .product:not(:has(.thumb)) { padding-top: 20px; }
     .product:hover { border-color: var(--bp-border-strong); }
     .top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
     .unit { color: var(--bp-ink-muted); font-size: .8rem; }

@@ -64,6 +64,12 @@ public sealed class CategoryRulesTests
             var attrs = p.GetProperty("Attributes").EnumerateObject().ToDictionary(o => o.Name, o => o.Value.GetString()!);
             problems.AddRange(Categories.Validate(category, attrs).Select(e => $"{sku}: {e}"));
             if (category != "labour" && !p.TryGetProperty("ImageUrl", out _)) problems.Add($"{sku}: no ImageUrl");
+            // Every image must exist in web/public (regenerate with: node web/scripts/generate-product-images.mjs).
+            if (p.TryGetProperty("ImageUrl", out var img) &&
+                !File.Exists(Path.Combine(dir.FullName, "web", "public", img.GetString()!.TrimStart('/').Replace('/', Path.DirectorySeparatorChar))))
+            {
+                problems.Add($"{sku}: image file {img.GetString()} is missing");
+            }
         }
         Assert.Empty(problems);
     }

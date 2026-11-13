@@ -4,7 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { CatalogPage } from './catalog.page';
 
 const products = [
-  { sku: 'PAINT-1G', name: 'Interior paint, white', description: null, unit: 'each', listPrice: 34.98, currency: 'USD', category: 'paint', imageUrl: null, attributes: {} },
+  { sku: 'PAINT-1G', name: 'Interior paint, white', description: null, unit: 'each', listPrice: 34.98, currency: 'USD', category: 'paint', imageUrl: '/products/paint-int-wht-1g.svg', attributes: {} },
   { sku: 'TILE-12', name: 'Ceramic floor tile', description: 'Per square metre', unit: 'm2', listPrice: 21.5, currency: 'USD', category: 'flooring', imageUrl: null, attributes: {} },
 ];
 
@@ -40,6 +40,9 @@ describe('CatalogPage', () => {
     expect(cards[0]!.textContent).toContain('Interior paint');
     expect(cards[0]!.querySelector('[data-testid="price"]')?.textContent).toContain('$34.98');
     expect(el.querySelector('[data-testid="count"]')?.textContent).toContain('2 of 2');
+    // Image when the product has one (alt = product name), none otherwise.
+    expect(cards[0]!.querySelector('img')?.getAttribute('alt')).toBe('Interior paint, white');
+    expect(cards[1]!.querySelector('img')).toBeNull();
   });
 
   it('filters by name or SKU as you type', async () => {
