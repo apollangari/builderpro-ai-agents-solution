@@ -36,6 +36,7 @@ app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 app.MapAssistantEndpoints();
+app.MapConciergeEndpoints();   // 3b
 
 app.Run();
 

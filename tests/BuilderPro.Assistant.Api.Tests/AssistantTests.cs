@@ -46,9 +46,21 @@ public sealed class FakePlatform : IPlatformApi
 {
     public List<string> Calls { get; } = [];
 
+    /// <summary>Answers by "VERB path" prefix, e.g. "POST /api/quotes/guided/preview"; anything else gets the defaults below.</summary>
+    public Dictionary<string, object> Responses { get; } = [];
+    public List<string> Bodies { get; } = [];
+
+    private bool TryAnswer(string call, out JsonElement answer)
+    {
+        var hit = Responses.FirstOrDefault(r => call.StartsWith(r.Key, StringComparison.Ordinal));
+        answer = hit.Key is null ? default : JsonSerializer.SerializeToElement(hit.Value);
+        return hit.Key is not null;
+    }
+
     public Task<JsonElement> GetAsync(string path, CancellationToken ct)
     {
         Calls.Add("GET " + path);
+        if (TryAnswer("GET " + path, out var answer)) return Task.FromResult(answer);
         return Task.FromResult(JsonSerializer.SerializeToElement(new[]
         {
             new { sku = "CT-QTZ", name = "Quartz countertop, Calacatta white", unit = "sqft", listPrice = 89.00m, currency = "USD", category = "countertops" },
@@ -59,6 +71,8 @@ public sealed class FakePlatform : IPlatformApi
     public Task<JsonElement> PostAsync(string path, object body, CancellationToken ct)
     {
         Calls.Add("POST " + path);
+        Bodies.Add(JsonSerializer.Serialize(body));
+        if (TryAnswer("POST " + path, out var answer)) return Task.FromResult(answer);
         return Task.FromResult(JsonSerializer.SerializeToElement(new[]
         {
             new { sku = "CT-QTZ", quantity = 30, unitPrice = 89.00m, subtotal = 2670.00m, taxRate = 0.0825m, tax = 220.28m, total = 2890.28m, currency = "USD" },
@@ -336,5 +350,102 @@ public sealed class AssistantModelTests
     public void A_local_openai_compatible_server_needs_no_key()
     {
         Assert.NotNull(AssistantModel.Create(Config(("Assistant:Provider", "openai-compatible"), ("Assistant:Endpoint", "http://localhost:11434/v1"), ("Assistant:Deployment", "qwen2.5:7b"))));
+    }
+}
+
+/// <summary>3b: the concierge prices a draft through the guided preview and never saves.</summary>
+public sealed class ConciergeTests
+{
+    private static readonly object Preview = new
+    {
+        measurement = new { kind = "countertop", values = new { sqft = 21.88m, edgeFt = 11m }, productBasis = "sqft" },
+        lines = new object[]
+        {
+            new { sku = "CT-QTZ", name = "Quartz", unit = "sqft", quantity = 21.88m, unitPrice = 89.00m, lineTotal = 1947.32m, group = "product" },
+            new { sku = "CT-QTZ-MIN", name = "Minimum charge (25 sq ft minimum)", unit = "sqft", quantity = 3.12m, unitPrice = 89.00m, lineTotal = 277.68m, group = "minimum" },
+        },
+        currency = "USD", subtotal = 2225.00m, taxRate = 0.0825m, tax = 183.56m, total = 2408.56m,
+        missing = new[] { "ct-edge" }, complete = false,
+    };
+
+    private static AssistantFactory Factory(string finalText)
+    {
+        var f = new AssistantFactory();
+        f.Platform.Responses["POST /api/quotes/guided/preview"] = Preview;
+        f.Model.Tool = "price_draft";
+        f.Model.ToolArgs = new()
+        {
+            ["zip"] = "62701",
+            ["sku"] = "CT-QTZ",
+            ["measurements"] = JsonSerializer.SerializeToElement(new { layout = "straight", countertop = new[] { new { widthFt = 10, widthIn = 6, depthIn = 25 } } }),
+            ["choices"] = JsonSerializer.SerializeToElement(new[] { new { group = "ct-plan", sku = (string?)null } }),
+        };
+        f.Model.FinalText = finalText;
+        return f;
+    }
+
+    private static Task<HttpResponseMessage> Talk(AssistantFactory f, string text, string sub = "alice", object? draft = null) =>
+        f.As(sub).PostAsJsonAsync("/api/assistant/concierge", new { messages = new[] { new { role = "user", content = text } }, accountZip = "62701", draft });
+
+    [Fact]
+    public async Task The_concierge_prices_a_draft_converting_feet_and_inches_in_code()
+    {
+        using var f = Factory("That's 21.88 sq ft. With the 25 sq ft minimum your draft total is $2,408.56. Still to choose: edge style.");
+        var r = await Talk(f, "10 ft 6 in by 25 inches, quartz please");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var reply = (await r.Content.ReadFromJsonAsync<ConciergeReply>())!;
+
+        Assert.False(reply.Guarded);
+        Assert.Equal(["price_draft"], reply.ToolsUsed);
+        Assert.Contains("POST /api/quotes/guided/preview", f.Platform.Calls);
+        Assert.Contains("\"widthIn\":126", f.Platform.Bodies.Single());   // 10 ft 6 in, converted by code, not the model
+        Assert.Equal(2408.56m, reply.Quote!.Value.GetProperty("total").GetDecimal());
+        Assert.Equal("CT-QTZ", reply.Draft!.Value.GetProperty("sku").GetString());
+        Assert.DoesNotContain(f.Platform.Calls, c => c.StartsWith("POST /api/quotes/guided", StringComparison.Ordinal) && !c.Contains("preview"));   // never saves
+    }
+
+    [Fact]
+    public async Task An_invented_total_is_blocked_but_the_priced_draft_still_reaches_the_page()
+    {
+        using var f = Factory("Your total comes to about $2,300.00.");
+        var reply = (await (await Talk(f, "How much?")).Content.ReadFromJsonAsync<ConciergeReply>())!;
+        Assert.True(reply.Guarded);
+        Assert.Equal(AssistantEndpoints.GuardedReply, reply.Reply);
+        Assert.NotNull(reply.Draft);
+    }
+
+    [Fact]
+    public async Task The_model_gets_the_account_zip_and_current_draft_as_context_and_the_no_save_rule()
+    {
+        using var f = Factory("Is this project at ZIP 62701?");
+        f.Model.Tool = "";
+        await Talk(f, "Hi, I need a countertop", draft: new { zip = "62701", sku = "CT-QTZ" });
+
+        var context = string.Join("\n", f.Model.LastMessages.Where(m => m.Role == ChatRole.System).Select(m => m.Text));
+        Assert.Contains("Customer's account ZIP: 62701", context);
+        Assert.Contains("\"sku\":\"CT-QTZ\"", context);
+        Assert.Contains("cannot save, accept, pay", f.Model.LastInstructions);
+        Assert.Contains("NEVER calculate money, areas", f.Model.LastInstructions);
+    }
+
+    [Fact]
+    public async Task Non_members_and_bad_requests_never_reach_the_model()
+    {
+        using var f = Factory("x");
+        Assert.Equal(HttpStatusCode.Forbidden, (await Talk(f, "Hi", sub: "erin")).StatusCode);
+        var tooBig = await f.As("alice").PostAsJsonAsync("/api/assistant/concierge",
+            new { messages = new[] { new { role = "user", content = "Hi" } }, draft = new { blob = new string('x', 9000) } });
+        Assert.Equal(HttpStatusCode.BadRequest, tooBig.StatusCode);
+        Assert.Equal(0, f.Model.Calls);
+    }
+
+    [Fact]
+    public void Feet_and_inches_become_inches_and_only_the_measured_part_is_sent()
+    {
+        var json = JsonSerializer.Serialize(ConciergeTools.ToMeasurements(new DraftMeasurements(
+            Layout: "l-island", Countertop: [new(8, 0, 25)], Island: [new(6, 3, 36)])));
+        Assert.Contains("\"widthIn\":96", json);
+        Assert.Contains("\"widthIn\":75", json);
+        Assert.Contains("\"roof\":null", json);
     }
 }

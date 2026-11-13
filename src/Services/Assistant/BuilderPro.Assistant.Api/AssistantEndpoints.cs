@@ -54,11 +54,7 @@ public static class AssistantEndpoints
         ILogger<ChatRequest> log, CancellationToken ct)
     {
         var turns = request.Messages ?? [];
-        if (turns.Length is 0 or > MaxMessages || turns[^1].Role != "user"
-            || turns.Any(t => t.Role is not ("user" or "assistant") || string.IsNullOrWhiteSpace(t.Content) || t.Content.Length > MaxChars))
-        {
-            return Problem(StatusCodes.Status400BadRequest, "invalid_chat", $"Send 1-{MaxMessages} messages (user/assistant, up to {MaxChars} characters), ending with the user's.");
-        }
+        if (InvalidTurns(turns) is { } invalid) return invalid;
 
         // Same gate as every other service: a member of a store, or the platform's refusal.
         var tenant = await tenants.ResolveAsync(http, ct);
@@ -70,23 +66,8 @@ public static class AssistantEndpoints
         var agent = new ChatClientAgent(chat.Client, Instructions, "builderpro-assistant", "Read-only product assistant", new PlatformTools(api, ledger).All());
         var messages = turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)).ToList();
 
-        string reply;
-        try
-        {
-            var response = await agent.RunAsync(messages, cancellationToken: ct);
-            reply = (response.Text ?? "").Trim();
-        }
-        catch (ClientResultException ex) when (ex.Status == StatusCodes.Status429TooManyRequests)
-        {
-            // The model's quota (tokens or requests per minute) is used up: say so instead of a 500.
-            log.LogWarning("The AI model is rate limiting the assistant (HTTP 429).");
-            return Problem(StatusCodes.Status503ServiceUnavailable, "assistant_busy", "The AI model is busy right now. Try again in a minute.");
-        }
-        catch (ClientResultException ex)
-        {
-            log.LogError(ex, "The AI model call failed with HTTP {Status}.", ex.Status);
-            return Problem(StatusCodes.Status502BadGateway, "assistant_model_error", "The AI model couldn't answer. Try again later.");
-        }
+        var (reply, failed) = await RunAgentAsync(agent, messages, log, ct);
+        if (failed is not null) return failed;
 
         var unbacked = PriceGuard.Unbacked(reply, ledger.Amounts);
         if (unbacked.Count > 0)
@@ -97,7 +78,35 @@ public static class AssistantEndpoints
         return Results.Ok(new ChatReply(reply, Guarded: false, ledger.ToolsUsed));
     }
 
-    private static IResult Problem(int status, string code, string detail) =>
+    /// <summary>The shape every chat request must have (shared by the assistant and the concierge).</summary>
+    internal static IResult? InvalidTurns(ChatTurn[] turns) =>
+        turns.Length is 0 or > MaxMessages || turns[^1].Role != "user"
+            || turns.Any(t => t.Role is not ("user" or "assistant") || string.IsNullOrWhiteSpace(t.Content) || t.Content.Length > MaxChars)
+            ? Problem(StatusCodes.Status400BadRequest, "invalid_chat", $"Send 1-{MaxMessages} messages (user/assistant, up to {MaxChars} characters), ending with the user's.")
+            : null;
+
+    /// <summary>Runs the agent; model failures become named problems (busy / model error), never a 500.</summary>
+    internal static async Task<(string Reply, IResult? Problem)> RunAgentAsync(ChatClientAgent agent, List<ChatMessage> messages, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var response = await agent.RunAsync(messages, cancellationToken: ct);
+            return ((response.Text ?? "").Trim(), null);
+        }
+        catch (ClientResultException ex) when (ex.Status == StatusCodes.Status429TooManyRequests)
+        {
+            // The model's quota (tokens or requests per minute) is used up: say so instead of a 500.
+            log.LogWarning("The AI model is rate limiting the assistant (HTTP 429).");
+            return ("", Problem(StatusCodes.Status503ServiceUnavailable, "assistant_busy", "The AI model is busy right now. Try again in a minute."));
+        }
+        catch (ClientResultException ex)
+        {
+            log.LogError(ex, "The AI model call failed with HTTP {Status}.", ex.Status);
+            return ("", Problem(StatusCodes.Status502BadGateway, "assistant_model_error", "The AI model couldn't answer. Try again later."));
+        }
+    }
+
+    internal static IResult Problem(int status, string code, string detail) =>
         Results.Problem(statusCode: status, title: code, detail: detail, extensions: new Dictionary<string, object?> { ["code"] = code });
 }
 

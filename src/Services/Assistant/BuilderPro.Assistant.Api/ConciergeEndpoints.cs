@@ -1,0 +1,98 @@
+using System.Text.Json;
+using BuilderPro.Security;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+
+namespace BuilderPro.Assistant.Api;
+
+/// <summary>
+/// The page sends the conversation, the ZIP from the customer's account (if any) and the current
+/// draft (the last guided request the concierge priced), so the server keeps no chat state.
+/// </summary>
+public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null);
+
+/// <summary>Draft + Quote are set when the concierge priced a draft this turn; the page keeps the last ones.</summary>
+public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote);
+
+/// <summary>
+/// The concierge (3b): walks the customer through the guided quote (ZIP, project type, product,
+/// measurements, options, protection) in conversation and prices a DRAFT with the same pricing
+/// engine as the quote builder. It never saves, accepts, pays or books: the page's "Save quote"
+/// button does that, pressed by the customer. Prices in its replies pass the same price guard as 3a.
+/// </summary>
+public static class ConciergeEndpoints
+{
+    public const int MaxDraftChars = 8000;
+
+    public const string Instructions = """
+        You are the concierge of a home-improvement store on the BuilderPro platform. You help a
+        customer put together a quote for one project, step by step, in a friendly, short way.
+
+        The steps, in order (skip what you already know):
+        1. ZIP: if the customer's account ZIP is given, ask "Is this project at ZIP <zip>?". Call
+           check_zip. If it isn't served, say so and ask for the ZIP where the work will happen.
+        2. Project type: call list_project_types and offer the types by name.
+        3. Product: call find_products; suggest at most 3 by name with their price per unit.
+        4. Measurements: call get_project_steps for the chosen product. Its "measure" says what to ask:
+           countertop = each countertop section's width (feet and inches) and depth (inches, standard 25),
+           any island and backsplash, and the layout; roof = footprint sq ft and pitch; area = each
+           room's length and width in feet; count = how many. Ask in plain words, one thing at a time.
+        5. Options, then protection plan: ask each required step from get_project_steps, offering the
+           options by name and price, and its none choice when it has one.
+        6. Call price_draft as soon as you have product + measurements, and again after every answer.
+           Tell the customer the measured quantities and the total exactly as price_draft returns them,
+           and which steps are still missing.
+
+        Rules:
+        - NEVER calculate money, areas, lengths or quantities yourself. Pass feet and inches to
+          price_draft as given; it converts and measures. Repeat amounts exactly as tools return them.
+        - Prices per unit are before tax; only price_draft returns tax and totals.
+        - You cannot save, accept, pay, book a visit, or promise dates or discounts. When nothing is
+          missing, tell the customer to review the draft beside the chat and press "Save quote".
+        - Only products and options returned by your tools exist.
+        - Plain text for a chat bubble: short sentences, "- " lists. No tables, headings or bold.
+        """;
+
+    public static IEndpointRouteBuilder MapConciergeEndpoints(this IEndpointRouteBuilder app)
+    {
+        app.MapPost("/api/assistant/concierge", ChatAsync)
+            .RequireAuthorization()
+            .WithSummary("Talk to the concierge: it builds and prices a draft guided quote; the customer saves it (3b).");
+        return app;
+    }
+
+    internal static async Task<IResult> ChatAsync(
+        ConciergeRequest request, HttpContext http, ITenantLookup tenants, IPlatformApi api, IAssistantChatClient chat,
+        ILogger<ConciergeRequest> log, CancellationToken ct)
+    {
+        var turns = request.Messages ?? [];
+        if (AssistantEndpoints.InvalidTurns(turns) is { } invalid) return invalid;
+        if (request.AccountZip is { Length: > 12 } || (request.Draft is { } d && d.GetRawText().Length > MaxDraftChars))
+            return AssistantEndpoints.Problem(StatusCodes.Status400BadRequest, "invalid_chat", "The account ZIP or draft is too large.");
+
+        var tenant = await tenants.ResolveAsync(http, ct);
+        if (!tenant.Resolved) return AssistantEndpoints.Problem(tenant.Status, tenant.Code, "Could not determine your store.");
+        if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
+
+        var ledger = new PriceLedger();
+        var drafts = new DraftLedger();
+        var agent = new ChatClientAgent(chat.Client, Instructions, "builderpro-concierge", "Guided quote concierge", new ConciergeTools(api, ledger, drafts).All());
+
+        // What the page knows, as context (not as instructions from the customer).
+        var context = $"Customer's account ZIP: {(string.IsNullOrWhiteSpace(request.AccountZip) ? "unknown" : request.AccountZip)}.\n"
+            + $"Current draft (answers so far, priced by price_draft): {(request.Draft is { } draft ? draft.GetRawText() : "none yet")}";
+        var messages = new List<ChatMessage> { new(ChatRole.System, context) };
+        messages.AddRange(turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)));
+
+        var (reply, failed) = await AssistantEndpoints.RunAgentAsync(agent, messages, log, ct);
+        if (failed is not null) return failed;
+
+        var unbacked = PriceGuard.Unbacked(reply, ledger.Amounts);
+        if (unbacked.Count > 0)
+        {
+            log.LogWarning("Price guard blocked a concierge reply with amounts no tool returned: {Amounts}", unbacked);
+            return Results.Ok(new ConciergeReply(AssistantEndpoints.GuardedReply, true, ledger.ToolsUsed, drafts.Request, drafts.Quote));
+        }
+        return Results.Ok(new ConciergeReply(reply, false, ledger.ToolsUsed, drafts.Request, drafts.Quote));
+    }
+}

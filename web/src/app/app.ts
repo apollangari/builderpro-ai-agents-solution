@@ -67,7 +67,7 @@ interface MyMembership {
         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
         <a routerLink="/quote/new" routerLinkActive="active" data-testid="nav-start">Start a project</a>
         <a routerLink="/catalog" routerLinkActive="active">Catalog</a>
-        <a routerLink="/assistant" routerLinkActive="active">Assistant</a>
+        <a routerLink="/assistant" routerLinkActive="active">Concierge</a>
         <a routerLink="/quote" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" data-testid="nav-quote">Quote@if (draft.count()) { <span class="count">{{ draft.count() }}</span> }</a>
         <a routerLink="/quotes" routerLinkActive="active">My quotes</a>
         <a routerLink="/me" routerLinkActive="active">Who am I</a>
