@@ -5,7 +5,8 @@ import { Router } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource } from '../catalog/catalog.api';
-import { categoryTabs, keyAttributes } from '../catalog/picker';
+import { applyPicker, categoryTabs, filterGroups, keyAttributes } from '../catalog/picker';
+import { CatalogChatComponent, CatalogFilter } from './catalog-chat.component';
 import { Project } from './guided';
 import { ProgressTrackerComponent } from '../../shared/progress-tracker.component';
 
@@ -27,7 +28,7 @@ type Step = 'zip' | 'type' | 'product';
  */
 @Component({
   selector: 'bp-new-quote-page',
-  imports: [CurrencyPipe, ProgressTrackerComponent],
+  imports: [CurrencyPipe, ProgressTrackerComponent, CatalogChatComponent],
   template: `
     <div class="page">
       <bp-progress-tracker [steps]="stepLabels" [current]="step()" />
@@ -69,8 +70,12 @@ type Step = 'zip' | 'type' | 'product';
 
         @case ('type') {
           <section class="step" data-testid="step-category">
-            <h1 class="title">What are you working on?</h1>
-            <p class="muted">For ZIP {{ servedZip() }} <button type="button" class="link" (click)="changeZip()" data-testid="zip-change">Change</button></p>
+            <div class="title-row">
+              <h1 class="title">What are you working on?</h1>
+              <button type="button" class="zip-pill" (click)="changeZip()" data-testid="zip-change" [attr.aria-label]="'Project ZIP ' + servedZip() + ', change'">
+                <span aria-hidden="true">📍</span> ZIP {{ servedZip() }} <span class="change">Change</span>
+              </button>
+            </div>
             @if (products.isLoading()) {
               <p class="muted">Loading…</p>
             } @else if (products.error()) {
@@ -92,30 +97,59 @@ type Step = 'zip' | 'type' | 'product';
 
         @case ('product') {
           <section class="step" data-testid="step-product">
-            <h1 class="title">Choose your {{ typeName().toLowerCase() }}</h1>
-            <p class="muted">Prices for ZIP {{ servedZip() }}</p>
-            @if (products.isLoading()) {
-              <p class="muted">Loading products for your area…</p>
-            } @else if (inCategory().length === 0) {
-              <p class="muted" data-testid="no-products">Your store doesn't offer {{ typeName().toLowerCase() }} in this ZIP yet.</p>
-            } @else {
-              <div class="grid">
-                @for (p of inCategory(); track p.sku) {
-                  <article class="product" [attr.data-testid]="'product-' + p.sku">
-                    @if (p.imageUrl) { <img [src]="p.imageUrl" alt="" width="320" height="200" loading="lazy" /> }
-                    <h2>{{ p.name }}</h2>
-                    <div class="chips">
-                      @for (a of badges(p); track a) { <span class="badge">{{ a }}</span> }
-                    </div>
-                    <p class="price" data-testid="price">{{ p.listPrice | currency: p.currency }} <span class="muted">/ {{ unitLabel(p.unit) }}</span></p>
-                    <button type="button" class="btn btn-primary" (click)="choose(p)" [disabled]="starting()" [attr.data-testid]="'choose-' + p.sku">
-                      {{ starting() && selected() === p.sku ? 'Starting…' : 'Choose' }}
-                    </button>
-                  </article>
+            <div class="title-row">
+              <h1 class="title">Choose your {{ typeName().toLowerCase() }}</h1>
+              <button type="button" class="zip-pill" (click)="changeZip()" [attr.aria-label]="'Project ZIP ' + servedZip() + ', change'">
+                <span aria-hidden="true">📍</span> ZIP {{ servedZip() }} <span class="change">Change</span>
+              </button>
+            </div>
+            <div class="browse">
+              <bp-catalog-chat [zip]="servedZip()!" [category]="category()!" [categoryName]="typeName()" (filtered)="chatFilter.set($event)" />
+              <div class="catalog">
+                @if (filterGroupsHere().length || chatFilter()) {
+                  <div class="filters" data-testid="filters">
+                    @if (chatFilter(); as cf) {
+                      <span class="chip active" data-testid="chat-filter">{{ describeFilter(cf) }}
+                        <button type="button" class="x" (click)="chatFilter.set(null)" aria-label="Clear the concierge's filter" data-testid="clear-chat-filter">×</button>
+                      </span>
+                    }
+                    @for (g of filterGroupsHere(); track g.key) {
+                      <label class="filter">{{ g.label }}
+                        <select [value]="manual()[g.key] ?? ''" (change)="setManual(g.key, $any($event.target).value)" [attr.data-testid]="'filter-' + g.key">
+                          <option value="">Any</option>
+                          @for (v of g.values; track v.value) { <option [value]="v.value">{{ v.value.replace('-', ' ') }} ({{ v.count }})</option> }
+                        </select>
+                      </label>
+                    }
+                  </div>
                 }
+                @if (products.isLoading()) {
+                  <p class="muted">Loading products for your area…</p>
+                } @else if (inCategory().length === 0) {
+                  <p class="muted" data-testid="no-products">Your store doesn't offer {{ typeName().toLowerCase() }} in this ZIP yet.</p>
+                } @else if (shown().length === 0) {
+                  <p class="muted" data-testid="no-matches">Nothing matches. <button type="button" class="link" (click)="clearFilters()">Show all</button></p>
+                } @else {
+                  <p class="muted small" data-testid="shown-count">{{ shown().length }} of {{ inCategory().length }} · prices per unit for ZIP {{ servedZip() }}</p>
+                  <div class="grid">
+                    @for (p of shown(); track p.sku) {
+                      <article class="product" [attr.data-testid]="'product-' + p.sku">
+                        @if (p.imageUrl) { <img [src]="p.imageUrl" alt="" width="320" height="200" loading="lazy" /> }
+                        <h2>{{ p.name }}</h2>
+                        <div class="chips">
+                          @for (a of badges(p); track a) { <span class="badge">{{ a }}</span> }
+                        </div>
+                        <p class="price" data-testid="price">{{ p.listPrice | currency: p.currency }} <span class="muted">/ {{ unitLabel(p.unit) }}</span></p>
+                        <button type="button" class="btn btn-primary" (click)="choose(p)" [disabled]="starting()" [attr.data-testid]="'choose-' + p.sku">
+                          {{ starting() && selected() === p.sku ? 'Starting…' : 'Choose' }}
+                        </button>
+                      </article>
+                    }
+                  </div>
+                }
+                @if (startError()) { <div class="warning" role="alert"><span>{{ startError() }}</span></div> }
               </div>
-            }
-            @if (startError()) { <div class="warning" role="alert"><span>{{ startError() }}</span></div> }
+            </div>
             <div class="nav"><button type="button" class="btn" (click)="backToType()" data-testid="back">Back</button></div>
           </section>
         }
@@ -128,7 +162,23 @@ type Step = 'zip' | 'type' | 'product';
     .steps li::before { content: counter(step) '. '; }
     .steps li.current { border-color: var(--bp-accent); background: var(--bp-accent); color: var(--bp-on-accent); font-weight: 600; }
     .steps li.done { background: var(--bp-accent-soft); color: var(--bp-accent); border-color: transparent; }
-    .step { display: grid; gap: .75rem; }
+    :host { display: block; }
+    .page { max-width: 72rem; margin: 0 auto; }
+    .step { display: grid; gap: 1rem; }
+    .title-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .zip-pill {
+      display: inline-flex; align-items: center; gap: .4rem; min-height: 2.5rem; padding: 0 1rem; border-radius: 999px;
+      border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .zip-pill .change { color: var(--bp-accent); font-weight: 400; text-decoration: underline; }
+    .browse { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; }
+    @media (max-width: 900px) { .browse { grid-template-columns: 1fr; } }
+    .catalog { display: grid; gap: .75rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .filter { display: flex; align-items: center; gap: .4rem; font-size: .9rem; color: var(--bp-ink-muted); }
+    .filter select { min-height: 2.5rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; padding: 0 .5rem; }
+    .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .3rem .4rem .3rem .8rem; border-radius: 999px; background: var(--bp-accent-soft); color: var(--bp-accent); font-weight: 600; }
+    .chip .x { border: 0; background: none; color: inherit; font-size: 1.1rem; cursor: pointer; min-width: 1.75rem; min-height: 1.75rem; }
     .zip-card { max-width: 26rem; margin: 2rem auto 0; display: grid; gap: .6rem; justify-items: center; text-align: center; padding: 2rem 1.75rem; }
     .zip-big { font-family: var(--bp-font-heading); font-size: 2.6rem; font-weight: 700; letter-spacing: .06em; color: var(--bp-ink); line-height: 1.1; margin-top: .5rem; }
     .small { font-size: .85rem; margin: 0; }
@@ -145,7 +195,7 @@ type Step = 'zip' | 'type' | 'product';
     }
     .actions, .nav { display: flex; gap: .6rem; flex-wrap: wrap; }
     .link { min-height: var(--bp-tap); background: none; border: 0; color: var(--bp-accent); text-decoration: underline; cursor: pointer; font: inherit; }
-    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .75rem; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 1rem; }
     .tile {
       display: grid; gap: .35rem; text-align: left; padding: .6rem; cursor: pointer; font: inherit; color: var(--bp-ink);
       border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); background: var(--bp-surface);
@@ -215,6 +265,35 @@ export class NewQuotePage {
   protected readonly typeName = computed(() => this.types().find((t) => t.id === this.category())?.name ?? 'product');
   protected readonly inCategory = computed(() => this.products.value().filter((p) => p.category === this.category()));
 
+  // ---- the product screen's filters: the concierge's (server-applied) and the customer's own ----
+  protected readonly chatFilter = signal<CatalogFilter | null>(null);
+  protected readonly manual = signal<Record<string, string>>({});
+  protected readonly filterGroupsHere = computed(() =>
+    filterGroups(this.inCategory(), this.categories.value().find((c) => c.id === this.category())),
+  );
+  protected readonly shown = computed(() => {
+    const chat = this.chatFilter();
+    const base = chat ? this.inCategory().filter((p) => chat.skus.includes(p.sku)) : this.inCategory();
+    return applyPicker(base, null, this.manual(), '');
+  });
+
+  protected setManual(key: string, value: string): void {
+    this.manual.update((m) => ({ ...m, [key]: value }));
+  }
+
+  protected clearFilters(): void {
+    this.chatFilter.set(null);
+    this.manual.set({});
+  }
+
+  /** "quartz · white · under $90" for the chip. */
+  protected describeFilter(f: CatalogFilter): string {
+    const parts = [...Object.values(f.attributes), f.words ?? ''].filter(Boolean);
+    if (f.minPrice != null) parts.push(`from $${f.minPrice}`);
+    if (f.maxPrice != null) parts.push(`under $${f.maxPrice}`);
+    return parts.length ? parts.join(' · ') : 'Concierge picks';
+  }
+
   // ---- choosing a product creates the project, saves the product, opens the workspace ----
   private readonly createReq = signal<{ zip: string; title: string } | null>(null);
   private readonly created = httpResource<Project>(() => {
@@ -244,6 +323,7 @@ export class NewQuotePage {
 
   protected pickCategory(id: string): void {
     this.category.set(id);
+    this.clearFilters();
   }
 
   protected backToType(): void {
@@ -269,9 +349,12 @@ export class NewQuotePage {
     this.createReq.set({ zip, title: `${this.typeName()} · ${p.name}` });
   }
 
-  /** A project type's picture: one of the store's products of that type. */
+  /** Platform pictures for types whose first product isn't a good picture (roofing's could be drip edge). */
+  private static readonly TYPE_PICTURES: Record<string, string> = { roofing: '/products/roof-shingle-arch.svg' };
+
+  /** A project type's picture: the platform's, else one of the store's products of that type. */
   protected pictureOf(category: string): string | null {
-    return this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
+    return NewQuotePage.TYPE_PICTURES[category] ?? this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
   }
 
   protected badges(p: Product): string[] {

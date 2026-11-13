@@ -9,10 +9,12 @@ namespace BuilderPro.Assistant.Api;
 /// The page sends the conversation, the ZIP from the customer's account (if any) and the current
 /// draft (the last guided request the concierge priced), so the server keeps no chat state.
 /// </summary>
-public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null, Guid? ProjectId = null);
+public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null, Guid? ProjectId = null,
+    CatalogContext? Catalog = null);
 
 /// <summary>Draft + Quote are set when the concierge priced a draft this turn; the page keeps the last ones.</summary>
-public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote, bool ProjectChanged = false);
+public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote,
+    bool ProjectChanged = false, CatalogFilterDto? Filter = null);
 
 /// <summary>
 /// The concierge (3b): walks the customer through the guided quote (ZIP, project type, product,
@@ -63,6 +65,50 @@ public static class ConciergeEndpoints
         - You can NEVER accept the quote. Tell the customer to review it and press "Accept quote" themselves.
         """;
 
+    /// <summary>Catalog mode (owner request): help pick a product of one type in one ZIP by filtering what's shown.</summary>
+    public const string CatalogInstructions = """
+        You are the concierge of a home-improvement store on the BuilderPro platform. The customer is looking at
+        one project type's products for their ZIP, shown beside this chat, and wants help choosing.
+        - When they describe what they want (material, colour, finish, size, budget...), call filter_catalog with
+          matching attribute keys from the category (given as context) and/or a price range, then say briefly what
+          you found: how many, and up to 3 names with their price per unit exactly as returned.
+        - To show everything again, call filter_catalog with no arguments.
+        - Answer questions about the products from what filter_catalog returns. Never invent products or prices.
+          Prices per unit are before tax.
+        - You don't start projects or quotes: the customer presses "Choose" on the product they want.
+        - Plain text for a chat bubble: short sentences, "- " lists. No tables, headings or bold.
+        """;
+
+    private static async Task<IResult> CatalogChatAsync(
+        CatalogContext catalog, ChatTurn[] turns, IPlatformApi api, IChatClient client, PriceLedger ledger, ILogger log, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(catalog.Zip) || catalog.Zip.Length > 12 || !BuilderPro.Security.ClaimsNormalizer.IsIdentifier(catalog.Category))
+            return AssistantEndpoints.Problem(StatusCodes.Status400BadRequest, "invalid_chat", "Send the ZIP and project type being browsed.");
+
+        var tools = new CatalogFilterTools(api, ledger, catalog);
+        var agent = new ChatClientAgent(client, CatalogInstructions, "builderpro-concierge", "Catalog helper", tools.All());
+
+        // Context: the category's attribute keys and choices, so the model filters with real keys.
+        var categories = await api.GetAsync("/api/catalog/categories", ct);
+        var category = categories.ValueKind == JsonValueKind.Array
+            ? categories.EnumerateArray().FirstOrDefault(c => c.GetProperty("id").GetString() == catalog.Category)
+            : default;
+        var context = $"Browsing: category {catalog.Category} in ZIP {catalog.Zip}. Category attributes: "
+            + (category.ValueKind == JsonValueKind.Object && category.TryGetProperty("attributes", out var attrs) ? attrs.GetRawText() : "unknown");
+        var messages = new List<ChatMessage> { new(ChatRole.System, context) };
+        messages.AddRange(turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)));
+
+        var (reply, failed) = await AssistantEndpoints.RunAgentAsync(agent, messages, log, ct);
+        if (failed is not null) return failed;
+        var unbacked = PriceGuard.Unbacked(reply, ledger.Amounts);
+        if (unbacked.Count > 0)
+        {
+            log.LogWarning("Price guard blocked a catalog reply with amounts no tool returned: {Amounts}", unbacked);
+            return Results.Ok(new ConciergeReply(AssistantEndpoints.GuardedReply, true, ledger.ToolsUsed, null, null, false, tools.Filter));
+        }
+        return Results.Ok(new ConciergeReply(reply, false, ledger.ToolsUsed, null, null, false, tools.Filter));
+    }
+
     public static IEndpointRouteBuilder MapConciergeEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/assistant/concierge", ChatAsync)
@@ -85,6 +131,7 @@ public static class ConciergeEndpoints
         if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
 
         var ledger = new PriceLedger();
+        if (request.Catalog is { } catalog) return await CatalogChatAsync(catalog, turns, api, chat.Client, ledger, log, ct);
         var drafts = new DraftLedger();
         var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId);
         var instructions = request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;

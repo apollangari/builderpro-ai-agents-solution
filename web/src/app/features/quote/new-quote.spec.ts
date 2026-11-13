@@ -118,4 +118,29 @@ describe('NewQuotePage (one step per screen)', () => {
     expect(el.querySelector('[data-testid="zip-yes"]')).toBeNull();
     expect(el.querySelector('[data-testid="zip-input"]')).not.toBeNull();
   });
+
+  it("the product screen's chat filters the catalog beside it; the chip clears it", async () => {
+    const el = await categoriesLoaded(setup('75078'));
+    await click(el, 'zip-yes');
+    await served(el, '75078', [product('CT-QTZ', 'countertops', 89), product('CT-GRN', 'countertops', 72), product('CT-LAM', 'countertops', 28)]);
+    await click(el, 'type-countertops');
+    expect(el.querySelectorAll('[data-testid^="product-"]').length).toBe(3);
+    expect(el.querySelector('[data-testid="zip-change"], .zip-pill')?.textContent).toContain('75078');
+
+    const input = el.querySelector<HTMLInputElement>('[data-testid="catalog-input"]')!;
+    input.value = 'white quartz under $90';
+    input.dispatchEvent(new Event('input'));
+    await settle();
+    await click(el, 'catalog-send');
+    const ask = http.expectOne('/api/assistant/concierge');
+    expect(ask.request.body.catalog).toEqual({ zip: '75078', category: 'countertops' });
+    ask.flush({ reply: 'One match: CT-QTZ at $89.00.', guarded: false, toolsUsed: ['filter_catalog'],
+      filter: { attributes: { material: 'quartz', color: 'white' }, minPrice: null, maxPrice: 90, words: null, skus: ['CT-QTZ'] } });
+    await settle();
+
+    expect([...el.querySelectorAll('[data-testid^="product-"]')].map((a) => a.getAttribute('data-testid'))).toEqual(['product-CT-QTZ']);
+    expect(el.querySelector('[data-testid="chat-filter"]')?.textContent).toContain('quartz · white · under $90');
+    await click(el, 'clear-chat-filter');
+    expect(el.querySelectorAll('[data-testid^="product-"]').length).toBe(3);
+  });
 });

@@ -547,3 +547,69 @@ public sealed class ConciergeProjectTests
         Assert.Equal(0, f.Model.Calls);
     }
 }
+
+/// <summary>Catalog mode: the customer narrows a type's products by asking; the server applies the filter.</summary>
+public sealed class ConciergeCatalogTests
+{
+    private static AssistantFactory Factory(string finalText, object? args = null)
+    {
+        var f = new AssistantFactory();
+        f.Platform.Responses["GET /api/catalog/products?zip=75078&category=countertops"] = new[]
+        {
+            new { sku = "CT-QTZ-CALACATTA", name = "Quartz countertop, Calacatta white", unit = "sqft", listPrice = 89.00m, attributes = new Dictionary<string, string> { ["material"] = "quartz", ["color"] = "Calacatta white" } },
+            new { sku = "CT-QTZ-LUX", name = "Quartz countertop, Lux white", unit = "sqft", listPrice = 109.00m, attributes = new Dictionary<string, string> { ["material"] = "quartz", ["color"] = "Lux white" } },
+            new { sku = "CT-GRN-ABSOLUTE", name = "Granite countertop, Absolute black", unit = "sqft", listPrice = 72.00m, attributes = new Dictionary<string, string> { ["material"] = "granite", ["color"] = "Absolute black" } },
+        };
+        f.Platform.Responses["GET /api/catalog/categories"] = new[] { new { id = "countertops", attributes = new[] { new { key = "material" }, new { key = "color" } } } };
+        f.Model.Tool = "filter_catalog";
+        f.Model.ToolArgs = new()
+        {
+            ["attributes"] = JsonSerializer.SerializeToElement(args ?? new { material = "quartz", color = "white" }),
+            ["maxPrice"] = 90,
+        };
+        f.Model.FinalText = finalText;
+        return f;
+    }
+
+    private static async Task<ConciergeReply> Ask(AssistantFactory f, string text)
+    {
+        var r = await f.As("alice").PostAsJsonAsync("/api/assistant/concierge",
+            new { messages = new[] { new { role = "user", content = text } }, catalog = new { zip = "75078", category = "countertops" } });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<ConciergeReply>())!;
+    }
+
+    [Fact]
+    public async Task White_quartz_under_90_filters_on_the_server_and_the_page_gets_the_matches()
+    {
+        using var f = Factory("I found 1 white quartz under $90: Quartz countertop, Calacatta white at $89.00 per sq ft.");
+        var reply = await Ask(f, "white quartz under $90");
+
+        Assert.False(reply.Guarded);                       // $90 is the customer's own bound, $89.00 the tool's price
+        Assert.Equal(["filter_catalog"], reply.ToolsUsed);
+        Assert.Equal(["CT-QTZ-CALACATTA"], reply.Filter!.Skus);
+        Assert.Equal(90m, reply.Filter.MaxPrice);
+        Assert.Equal("quartz", reply.Filter.Attributes["material"]);
+        Assert.Contains("Browsing: category countertops in ZIP 75078", string.Join("\n", f.Model.LastMessages.Where(m => m.Role == ChatRole.System).Select(m => m.Text)));
+        Assert.Equal(["filter_catalog"], f.Model.LastToolNames);   // no project or quote tools here
+    }
+
+    [Fact]
+    public async Task An_invented_price_is_still_blocked_but_the_filter_reaches_the_page()
+    {
+        using var f = Factory("The cheapest is about $79.00.");
+        var reply = await Ask(f, "cheapest white quartz?");
+        Assert.True(reply.Guarded);
+        Assert.NotNull(reply.Filter);
+    }
+
+    [Fact]
+    public void Attribute_values_match_by_containing_ignoring_case_and_hyphens()
+    {
+        var p = JsonSerializer.SerializeToElement(new { listPrice = 45m, name = "Butcher block, maple", attributes = new { material = "butcher-block", color = "Natural maple" } });
+        Assert.True(CatalogFilterTools.Matches(p, new Dictionary<string, string> { ["material"] = "Butcher Block" }, null, null, []));
+        Assert.True(CatalogFilterTools.Matches(p, new Dictionary<string, string> { ["color"] = "maple" }, null, 50, ["block"]));
+        Assert.False(CatalogFilterTools.Matches(p, new Dictionary<string, string> { ["color"] = "white" }, null, null, []));
+        Assert.False(CatalogFilterTools.Matches(p, new Dictionary<string, string>(), 50, null, []));
+    }
+}
