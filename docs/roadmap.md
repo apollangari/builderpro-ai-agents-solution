@@ -55,7 +55,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 1h | **Packages per store**: a store's package turns on (a) the guided workflow with a **help chat** that only answers questions (no agent acting), and/or (b) the **AI concierge** that works on the project. Enforced server-side per tenant (the concierge refuses stores without it; the UI hides what isn't included) | A store without the agent package gets a refusal from the concierge API even if called directly |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
-| 6a | **Deposit** after Accept quote: payment provider in test mode, deposit % per store, receipt; quote locked at the accepted price for its validity (e.g. 14 days) | Only the customer can pay; the amount comes from the accepted quote |
+| 6a | **Deposit holds the price**: after Accept, the customer pays a **5 % advance** (payment provider in test mode; amount from the pricing engine); only a paid deposit holds the price until the quote's validity date; receipt | Without a paid deposit the price is not held; only the customer can pay; an agent can't |
 | 6b | **Measure visit**: pick a slot from store availability within the customer's contact hours; measured values replace the estimate and re-price the quote for the customer to confirm | A changed price always needs the customer's confirmation |
 | 6c | **Install tracking**: stages scheduled -> fabricating -> installing -> done, with notifications on the customer's chosen channels (consent from 1f-b) | No message is sent on a channel the customer didn't consent to |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
@@ -70,6 +70,12 @@ Principle shown on the page: *the concierge can prepare things, but never accept
 as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e (takeover) -> 6a-c.
 
 ## Decisions
+
+- **Price hold needs a deposit (2026-11-13, owner).** A quote's price is held only once the customer
+  pays an advance of **5 %** of the quote total. Accepting alone no longer holds the price: until the
+  deposit is paid, the quote is re-priced like any open quote and can go outdated. Today's code still
+  holds the price on Accept; 6a changes that (Accept -> pay 5 % deposit -> price held until the
+  validity date). The deposit amount comes from the pricing engine, never the browser or an agent.
 
 - **1e onboarding (2026-11-13): a sign-up link per store.** `/signup?store=acme` sends the visitor to Create account
   (or Continue with Google) and, on first sign-in, the Identity service creates a **customer** membership for that
