@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200" role="img" aria-label="Bevel edge">
+  <rect width="320" height="200" fill="#f4efe6"/>
+  <path d="M40 60 H250 L270 80 V110 L250 130 H40 Z" fill="#d9d4cc" stroke="#1f2a44" stroke-width="4" stroke-linejoin="round"/>
+  <text x="160" y="185" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" fill="#1f2a44">Bevel edge</text>
+</svg>

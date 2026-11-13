@@ -66,6 +66,26 @@ public sealed class FakeCatalog(FakeTenantLookup tenants) : ICatalogPrices
     /// <summary>The last ZIP the API passed on. ZIP 62701: list prices. 60601: PAINT only, at 39.00. "nope": invalid. Others: not served.</summary>
     public string? LastZip { get; private set; }
 
+    /// <summary>Acme sells CT-QTZ in ZIP 62701 with an edge step and a protection plan; 25 sq ft minimum.</summary>
+    public async Task<CatalogOptionsRead> GetOptionsAsync(HttpContext http, string sku, string zip, CancellationToken ct)
+    {
+        if (Down) return new CatalogOptionsRead(null);
+        var tenant = await tenants.ResolveAsync(http, ct);
+        if (zip == "nope") return new CatalogOptionsRead(null, "invalid_zip");
+        if (zip != "62701") return new CatalogOptionsRead(null, "zip_not_served");
+        if (tenant.TenantId != "t-acme" || sku != "CT-QTZ") return new CatalogOptionsRead(null, "unknown_sku");
+        return new CatalogOptionsRead(new CatalogOptions(
+            new CatalogProduct("CT-QTZ", "Quartz countertop", "sqft", 89m, "USD"), "countertop", 25m,
+            [
+                new("edge", "options", "Edge style", null, "single", "edgeFt", true, null,
+                    [new("EDGE-EASED", "Eased edge", "ft", 0m, "USD", null, 0), new("EDGE-OGEE", "Ogee edge", "ft", 18m, "USD", null, 0)]),
+                new("cutouts", "options", "Cut-outs", null, "quantity", "choice", false, null,
+                    [new("CUT-FAUCET", "Faucet hole", "each", 25m, "USD", null, 4)]),
+                new("plan", "protection", "Protection plan", null, "single", "fixed", true, "No protection plan",
+                    [new("PLAN-10Y", "10-year protection plan", "each", 399m, "USD", null, 0)]),
+            ]));
+    }
+
     public async Task<CatalogRead> GetAsync(HttpContext http, string? zip, CancellationToken ct)
     {
         LastZip = zip;
@@ -464,5 +484,110 @@ public sealed class PreviewTests(QuotesFactory f) : IClassFixture<QuotesFactory>
         var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "PAINT", quantity = 1m } } });
         Assert.Null(_f.Catalog.LastZip);
         Assert.Equal(34.98m, (await r.Content.ReadFromJsonAsync<QuoteDto>())!.Lines[0].UnitPrice);
+    }
+}
+
+/// <summary>2n-b..e: guided quotes through the API, with the fake catalog above.</summary>
+public sealed class GuidedQuoteApiTests(QuotesFactory f) : IClassFixture<QuotesFactory>
+{
+    private readonly QuotesFactory _f = f;
+
+    private static object Body(string zip = "62701", string sku = "CT-QTZ", object? choices = null, decimal width = 120m) => new
+    {
+        zip, sku,
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = width, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } } } },
+        choices = choices ?? new object[] { new { group = "edge", sku = "EDGE-OGEE" }, new { group = "cutouts", sku = "CUT-FAUCET", quantity = 5 }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    [Fact]
+    public async Task Preview_prices_measurements_options_and_protection_by_group()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview", Body());
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var q = (await r.Content.ReadFromJsonAsync<GuidedQuoteDto>())!;
+
+        Assert.Equal(38.84m, q.Measurement.Values["sqft"]);   // 20.84 + 18.00
+        Assert.Equal(28m, q.Measurement.Values["edgeFt"]);    // 120 in front + 216 in island perimeter = 336 in
+        Assert.Equal(["product", "options", "options", "protection"], q.Lines.Select(l => l.Group));
+        Assert.Equal(3456.76m, q.Lines[0].LineTotal);          // 38.84 x 89
+        Assert.Equal(504m, q.Lines[1].LineTotal);              // 28 ft ogee x 18
+        Assert.Equal(1m, q.Lines[2].Quantity);                 // 5 faucet holes, 4 included
+        Assert.True(q.Complete);
+        Assert.Empty(q.Missing);
+    }
+
+    [Fact]
+    public async Task Preview_lists_open_steps_and_save_refuses_them()
+    {
+        var body = Body(choices: new object[] { new { group = "edge", sku = "EDGE-EASED" } });
+        var preview = (await (await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview", body)).Content.ReadFromJsonAsync<GuidedQuoteDto>())!;
+        Assert.Equal(["plan"], preview.Missing);
+        Assert.False(preview.Complete);
+
+        var save = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided", body);
+        Assert.Equal(HttpStatusCode.BadRequest, save.StatusCode);
+        Assert.Contains("incomplete_quote", await save.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_small_top_gets_a_visible_minimum_line()
+    {
+        var body = new
+        {
+            zip = "62701", sku = "CT-QTZ",
+            measurements = new { countertop = new { countertop = new[] { new { widthIn = 60m, depthIn = 25m } } } },
+            choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = (string?)null } },
+        };
+        var q = (await (await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview", body)).Content.ReadFromJsonAsync<GuidedQuoteDto>())!;
+        Assert.Equal("minimum", q.Lines[1].Group);
+        Assert.Equal(14.58m, q.Lines[1].Quantity);             // 25 - 10.42
+    }
+
+    [Fact]
+    public async Task Save_stores_zip_groups_and_the_request_and_my_quotes_shows_it()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided", Body());
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        var saved = (await r.Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal("62701", saved.Zip);
+        Assert.Equal("protection", saved.Lines[^1].Group);
+
+        var stored = await _f.Store.FindAsync("t-acme", null, saved.Id, default);
+        Assert.Contains("\"sku\":\"CT-QTZ\"", stored!.Guided!.RequestJson);
+        Assert.DoesNotContain("89", stored.Guided.RequestJson);   // answers and measurements only, never prices
+
+        var mine = await _f.As("alice").GetFromJsonAsync<QuoteSummaryDto[]>("/api/quotes");
+        var summary = mine!.Single(q => q.Id == saved.Id);
+        Assert.Equal(("62701", "Quartz countertop"), (summary.Zip, summary.Title));
+    }
+
+    [Theory]
+    [InlineData("nope", "CT-QTZ", HttpStatusCode.BadRequest, "invalid_zip")]
+    [InlineData("90210", "CT-QTZ", HttpStatusCode.UnprocessableEntity, "zip_not_served")]
+    [InlineData("62701", "PAINT", HttpStatusCode.BadRequest, "unknown_sku")]
+    public async Task Bad_zip_or_product_is_named(string zip, string sku, HttpStatusCode status, string code)
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview", Body(zip, sku));
+        Assert.Equal(status, r.StatusCode);
+        Assert.Contains(code, await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Impossible_measurements_and_answers_are_named()
+    {
+        var tooNarrow = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview", Body(width: 2m));
+        Assert.Contains("invalid_section", await tooNarrow.Content.ReadAsStringAsync());
+
+        var badOption = await _f.As("alice").PostAsJsonAsync("/api/quotes/guided/preview",
+            Body(choices: new object[] { new { group = "edge", sku = "EDGE-GOLD" } }));
+        Assert.Equal(HttpStatusCode.BadRequest, badOption.StatusCode);
+        Assert.Contains("unknown_option", await badOption.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Saving_needs_quotes_write()
+    {
+        var r = await _f.As("bob").PostAsJsonAsync("/api/quotes/guided", Body());   // read-only staff
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
 }

@@ -13,7 +13,8 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
 {
     private const string HeadColumns = """
         id AS Id, tenant_id AS TenantId, customer_id AS CustomerId, created_by AS CreatedBy, status AS Status,
-        currency AS Currency, subtotal AS Subtotal, tax_rate AS TaxRate, tax AS Tax, total AS Total, created_at AS CreatedAt
+        currency AS Currency, subtotal AS Subtotal, tax_rate AS TaxRate, tax AS Tax, total AS Total, created_at AS CreatedAt,
+        zip AS Zip, guided_request::text AS GuidedRequest
         """;
 
     // @customerId NULL = staff: every customer of the tenant.
@@ -50,6 +51,12 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
                 line_total numeric(14,2) NOT NULL,
                 PRIMARY KEY (quote_id, line_no));
             INSERT INTO quotes.schema_history(version) VALUES (1) ON CONFLICT DO NOTHING;
+
+            -- v2 (2n-e): guided quotes keep their ZIP, the request they were built from, and line groups.
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS zip text NULL;
+            ALTER TABLE quotes.quotes ADD COLUMN IF NOT EXISTS guided_request jsonb NULL;
+            ALTER TABLE quotes.quote_lines ADD COLUMN IF NOT EXISTS line_group text NULL;
+            INSERT INTO quotes.schema_history(version) VALUES (2) ON CONFLICT DO NOTHING;
             """, cancellationToken: ct));
     }
 
@@ -59,8 +66,8 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         await using var tx = await conn.BeginTransactionAsync(ct);
 
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO quotes.quotes(id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at)
-            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Status, @Currency, @Subtotal, @TaxRate, @Tax, @Total, @CreatedAt)
+            INSERT INTO quotes.quotes(id, tenant_id, customer_id, created_by, status, currency, subtotal, tax_rate, tax, total, created_at, zip, guided_request)
+            VALUES (@Id, @TenantId, @CustomerId, @CreatedBy, @Status, @Currency, @Subtotal, @TaxRate, @Tax, @Total, @CreatedAt, @Zip, @GuidedRequest::jsonb)
             """,
             new
             {
@@ -68,18 +75,20 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
                 q.Priced.Total.Currency,
                 Subtotal = q.Priced.Subtotal.Amount, q.Priced.TaxRate, Tax = q.Priced.Tax.Amount, Total = q.Priced.Total.Amount,
                 CreatedAt = q.CreatedAt.UtcDateTime,
+                Zip = q.Guided?.Zip, GuidedRequest = q.Guided?.RequestJson,
             },
             tx, cancellationToken: ct));
 
         // Dapper runs the statement once per element: one INSERT per line, same transaction.
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO quotes.quote_lines(quote_id, line_no, sku, name, unit, quantity, unit_price, line_total)
-            VALUES (@QuoteId, @LineNo, @Sku, @Name, @Unit, @Quantity, @UnitPrice, @LineTotal)
+            INSERT INTO quotes.quote_lines(quote_id, line_no, sku, name, unit, quantity, unit_price, line_total, line_group)
+            VALUES (@QuoteId, @LineNo, @Sku, @Name, @Unit, @Quantity, @UnitPrice, @LineTotal, @LineGroup)
             """,
             q.Priced.Lines.Select((l, i) => new
             {
                 QuoteId = q.Id, LineNo = i, l.Sku, l.Name, l.Unit, l.Quantity,
                 UnitPrice = l.UnitPrice.Amount, LineTotal = l.LineTotal.Amount,
+                LineGroup = q.Guided?.LineGroups.ElementAtOrDefault(i),
             }),
             tx, cancellationToken: ct));
 
@@ -110,7 +119,7 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         // All lines of all quotes in ONE query (no N+1). Npgsql passes the Guid[] as a Postgres array.
         var lines = (await conn.QueryAsync<LineRow>(new CommandDefinition("""
             SELECT quote_id AS QuoteId, sku AS Sku, name AS Name, unit AS Unit, quantity AS Quantity,
-                   unit_price AS UnitPrice, line_total AS LineTotal
+                   unit_price AS UnitPrice, line_total AS LineTotal, line_group AS LineGroup
             FROM quotes.quote_lines WHERE quote_id = ANY(@ids) ORDER BY quote_id, line_no
             """, new { ids = heads.Select(h => h.Id).ToArray() }, cancellationToken: ct)))
             .ToLookup(l => l.QuoteId);
@@ -118,10 +127,12 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         return [.. heads.Select(h =>
         {
             Money M(decimal amount) => new(amount, h.Currency);
-            var priced = lines[h.Id].Select(l => new PricedLine(l.Sku, l.Name, l.Unit, l.Quantity, M(l.UnitPrice), M(l.LineTotal))).ToArray();
+            var rows = lines[h.Id].ToArray();
+            var priced = rows.Select(l => new PricedLine(l.Sku, l.Name, l.Unit, l.Quantity, M(l.UnitPrice), M(l.LineTotal))).ToArray();
+            var guided = h.Zip is null || h.GuidedRequest is null ? null : new GuidedInfo(h.Zip, h.GuidedRequest, [.. rows.Select(l => l.LineGroup ?? "")]);
             return new Quote(h.Id, h.TenantId, h.CustomerId, h.CreatedBy, h.Status,
                 new PricedQuote(priced, M(h.Subtotal), h.TaxRate, M(h.Tax), M(h.Total)),
-                new DateTimeOffset(DateTime.SpecifyKind(h.CreatedAt, DateTimeKind.Utc)));
+                new DateTimeOffset(DateTime.SpecifyKind(h.CreatedAt, DateTimeKind.Utc)), guided);
         })];
     }
 
@@ -138,6 +149,8 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         public decimal Tax { get; init; }
         public decimal Total { get; init; }
         public DateTime CreatedAt { get; init; }   // timestamptz arrives as UTC DateTime
+        public string? Zip { get; init; }
+        public string? GuidedRequest { get; init; }
     }
 
     private sealed class LineRow
@@ -149,5 +162,6 @@ public sealed class PostgresQuoteStore(NpgsqlDataSource db) : IQuoteStore
         public decimal Quantity { get; init; }
         public decimal UnitPrice { get; init; }
         public decimal LineTotal { get; init; }
+        public string? LineGroup { get; init; }
     }
 }

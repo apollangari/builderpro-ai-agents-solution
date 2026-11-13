@@ -18,6 +18,7 @@ public static class DevSeed
         }
 
         var products = app.Configuration.GetSection("Catalog:DevProducts").Get<SeedProduct[]>() ?? [];
+        var optionSets = app.Configuration.GetSection("Catalog:DevOptions").Get<SeedOptions[]>() ?? [];
         var store = app.Services.GetRequiredService<IProductStore>();
         // Fail fast: a seed product that breaks its category's rules stops startup, with every problem listed.
         var problems = products
@@ -35,6 +36,18 @@ public static class DevSeed
         }
         app.Logger.LogInformation("Seeded {Count} development products", products.Length);
 
+        // 2n-c/d option steps and minimums, validated like products (bad seed = no start).
+        var groups = optionSets.SelectMany(set => set.Groups.Select((g, i) => g.ToDomain(set.TenantId, set.Category, i))).ToArray();
+        var groupProblems = groups.SelectMany(g => g.Validate().Select(e => $"{g.TenantId}/{g.GroupId}: {e}")).ToArray();
+        if (groupProblems.Length > 0) throw new InvalidOperationException("Invalid Catalog:DevOptions:\n" + string.Join("\n", groupProblems));
+        var optionStore = app.Services.GetRequiredService<IOptionStore>();
+        foreach (var g in groups) await optionStore.UpsertGroupAsync(g, CancellationToken.None);
+        foreach (var set in optionSets.Where(s => s.MinimumQuantity is not null))
+        {
+            await optionStore.UpsertRuleAsync(new CategoryRule(set.TenantId, set.Category, set.MinimumQuantity!.Value), CancellationToken.None);
+        }
+        app.Logger.LogInformation("Seeded {Count} development option steps", groups.Length);
+
         // 2n-a price zones: every ZIP must be valid, and prices derive from the seeded list prices.
         var zones = app.Configuration.GetSection("Catalog:DevZones").Get<SeedZone[]>() ?? [];
         var badZips = zones.SelectMany(z => z.Zips.Where(zip => Zip.Normalize(zip) != zip).Select(zip => $"{z.TenantId}/{z.ZoneId}: bad ZIP '{zip}'")).ToArray();
@@ -44,13 +57,43 @@ public static class DevSeed
         foreach (var z in zones)
         {
             await zoneStore.UpsertZoneAsync(new PriceZone(z.TenantId, z.ZoneId, z.Name, z.Zips), CancellationToken.None);
-            foreach (var p in products.Where(p => p.TenantId == z.TenantId && !z.NotSold.Contains(p.Sku)))
+            // Products and option items get zone prices the same way (an option is sold where it has a price).
+            var priceable = products.Where(p => p.TenantId == z.TenantId).Select(p => (p.Sku, p.ListPrice))
+                .Concat(groups.Where(g => g.TenantId == z.TenantId).SelectMany(g => g.Options).Select(o => (o.Sku, o.ListPrice)))
+                .DistinctBy(x => x.Sku);
+            foreach (var (sku, listPrice) in priceable.Where(x => !z.NotSold.Contains(x.Sku)))
             {
-                var price = Math.Round(p.ListPrice * z.PriceFactor, 2, MidpointRounding.AwayFromZero);
-                await zoneStore.UpsertPriceAsync(new ZonePrice(z.TenantId, p.Sku, z.ZoneId, price), CancellationToken.None);
+                var price = Math.Round(listPrice * z.PriceFactor, 2, MidpointRounding.AwayFromZero);
+                await zoneStore.UpsertPriceAsync(new ZonePrice(z.TenantId, sku, z.ZoneId, price), CancellationToken.None);
             }
         }
         app.Logger.LogInformation("Seeded {Count} development price zones", zones.Length);
+    }
+
+    public sealed class SeedOptions
+    {
+        public string TenantId { get; set; } = "";
+        public string Category { get; set; } = "";
+        public decimal? MinimumQuantity { get; set; }
+        public SeedGroup[] Groups { get; set; } = [];
+    }
+
+    public sealed class SeedGroup
+    {
+        public string Id { get; set; } = "";
+        public string Step { get; set; } = "options";
+        public string Label { get; set; } = "";
+        public string? Help { get; set; }
+        public string Selection { get; set; } = "single";
+        public string Basis { get; set; } = "fixed";
+        public bool Required { get; set; }
+        public string? NoneLabel { get; set; }
+        public string? AppliesAttribute { get; set; }
+        public string[]? AppliesValues { get; set; }
+        public OptionItem[] Options { get; set; } = [];
+
+        public OptionGroup ToDomain(string tenantId, string category, int sort) =>
+            new(tenantId, category, Id, Step, Label, Help, Selection, Basis, Required, NoneLabel, AppliesAttribute, AppliesValues, sort, Options);
     }
 
     public sealed class SeedZone

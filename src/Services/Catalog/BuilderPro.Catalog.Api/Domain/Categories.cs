@@ -14,8 +14,9 @@ public sealed record TypicalSize(decimal Quantity, string Description);
 /// A product category: what it's called, how it's usually sold, and which attributes describe it.
 /// Scene names the default visualizer scene (2l) a product of this category is shown in.
 /// Typical is the project size compare (2k) prices every product at; null = no typical size.
+/// Measure names the guided quote's measurement form (2n-b): countertop, roof, area or count.
 /// </summary>
-public sealed record CategoryDefinition(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinition> Attributes, TypicalSize? Typical = null);
+public sealed record CategoryDefinition(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinition> Attributes, TypicalSize? Typical = null, string Measure = "count");
 
 /// <summary>
 /// The fixed category list (2h). Platform-owned on purpose: compare (2k), the visualizer (2l) and the
@@ -39,7 +40,7 @@ public static class Categories
             Text("color", "Colour", true),
             Choice("finish", "Finish", false, "polished", "honed", "leathered", "matte", "oiled"),
             Number("thicknessCm", "Thickness", "cm"),
-        ], new(30m, "an average kitchen (30 sq ft)")),
+        ], new(30m, "an average kitchen (30 sq ft)"), "countertop"),
         new("roofing", "Roofing", "bundle", "house-roof",
         [
             Choice("type", "Type", true, "shingle", "underlayment", "flashing", "ventilation", "accessory"),
@@ -47,7 +48,7 @@ public static class Categories
             Text("color", "Colour"),
             Number("windRatingMph", "Wind rating", "mph"),
             Text("coverage", "Coverage"),
-        ], new(72m, "a 24-square roof (72 bundles)")),
+        ], new(72m, "a 24-square roof (72 bundles)"), "roof"),
         new("sheds", "Sheds", "each", "backyard",
         [
             Choice("material", "Material", true, "wood", "resin", "metal"),
@@ -60,7 +61,7 @@ public static class Categories
             Choice("material", "Material", true, "vinyl-plank", "laminate", "tile", "hardwood", "carpet"),
             Text("color", "Colour", true),
             Number("thicknessMm", "Thickness", "mm"),
-        ], new(200m, "a 200 sq ft room")),
+        ], new(200m, "a 200 sq ft room"), "area"),
         new("decking", "Decking", "each", "backyard",
         [
             Choice("material", "Material", true, "cedar", "pressure-treated", "composite"),

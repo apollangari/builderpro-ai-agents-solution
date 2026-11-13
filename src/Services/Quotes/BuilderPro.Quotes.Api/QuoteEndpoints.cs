@@ -8,11 +8,12 @@ public sealed record CreateQuoteLine(string Sku, decimal Quantity);
 // Zip (2n-a): price with the store's zone for that ZIP; omitted = list prices (staff quote builder, 2m).
 public sealed record CreateQuoteRequest(CreateQuoteLine[]? Lines, string? Zip = null);
 
-public sealed record QuoteLineDto(string Sku, string Name, string Unit, decimal Quantity, decimal UnitPrice, decimal LineTotal);
+public sealed record QuoteLineDto(string Sku, string Name, string Unit, decimal Quantity, decimal UnitPrice, decimal LineTotal, string? Group = null);
 public sealed record QuoteDto(
     Guid Id, string Status, string? CustomerId, string Currency,
-    IReadOnlyList<QuoteLineDto> Lines, decimal Subtotal, decimal TaxRate, decimal Tax, decimal Total, DateTimeOffset CreatedAt);
-public sealed record QuoteSummaryDto(Guid Id, string Status, string? CustomerId, string Currency, int LineCount, decimal Total, DateTimeOffset CreatedAt);
+    IReadOnlyList<QuoteLineDto> Lines, decimal Subtotal, decimal TaxRate, decimal Tax, decimal Total, DateTimeOffset CreatedAt, string? Zip = null);
+public sealed record QuoteSummaryDto(Guid Id, string Status, string? CustomerId, string Currency, int LineCount, decimal Total, DateTimeOffset CreatedAt,
+    string? Zip = null, string? Title = null);
 public sealed record QuoteErrorDto(string Code, string Message, int? Line);
 
 // Estimates (2k): price "this product at that quantity" without storing anything.
@@ -128,7 +129,8 @@ public static class QuoteEndpoints
 
         var quotes = await store.ListAsync(tenant.TenantId!, tenant.CustomerId, ListLimit, ct);
         return Results.Ok(quotes.Select(q =>
-            new QuoteSummaryDto(q.Id, q.Status, q.CustomerId, q.Priced.Total.Currency, q.Priced.Lines.Count, q.Priced.Total.Amount, q.CreatedAt)));
+            new QuoteSummaryDto(q.Id, q.Status, q.CustomerId, q.Priced.Total.Currency, q.Priced.Lines.Count, q.Priced.Total.Amount, q.CreatedAt,
+                q.Guided?.Zip, q.Guided is null ? null : q.Priced.Lines.FirstOrDefault()?.Name)));
     }
 
     public const int MaxEstimateItems = 6;
@@ -196,10 +198,11 @@ public static class QuoteEndpoints
     internal static decimal TaxRateFor(string tenantId, IConfiguration config) =>
         config.GetValue<decimal?>($"Quotes:TaxRates:{tenantId}") ?? config.GetValue<decimal?>("Quotes:DefaultTaxRate") ?? 0m;
 
-    private static QuoteDto ToDto(Quote q) => new(
+    internal static QuoteDto ToDto(Quote q) => new(
         q.Id, q.Status, q.CustomerId, q.Priced.Total.Currency,
-        [.. q.Priced.Lines.Select(l => new QuoteLineDto(l.Sku, l.Name, l.Unit, l.Quantity, l.UnitPrice.Amount, l.LineTotal.Amount))],
-        q.Priced.Subtotal.Amount, q.Priced.TaxRate, q.Priced.Tax.Amount, q.Priced.Total.Amount, q.CreatedAt);
+        [.. q.Priced.Lines.Select((l, i) => new QuoteLineDto(l.Sku, l.Name, l.Unit, l.Quantity, l.UnitPrice.Amount, l.LineTotal.Amount,
+            q.Guided?.LineGroups.ElementAtOrDefault(i)))],
+        q.Priced.Subtotal.Amount, q.Priced.TaxRate, q.Priced.Tax.Amount, q.Priced.Total.Amount, q.CreatedAt, q.Guided?.Zip);
 
     private static IResult Invalid(IReadOnlyList<QuoteErrorDto> errors) =>
         Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "invalid_quote", detail: "The quote request has problems; see errors.",

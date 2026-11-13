@@ -10,7 +10,12 @@ public sealed record ProductDto(
 public sealed record AttributeDefinitionDto(string Key, string Label, string Kind, bool Required, IReadOnlyList<string>? Options, string? Unit);
 public sealed record TypicalSizeDto(decimal Quantity, string Description);
 public sealed record ServiceAreaDto(string Zip, bool Served);
-public sealed record CategoryDto(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinitionDto> Attributes, TypicalSizeDto? Typical);
+public sealed record CategoryDto(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinitionDto> Attributes, TypicalSizeDto? Typical, string Measure);
+
+// 2n-c/d: a product's option steps at one ZIP's prices.
+public sealed record OptionItemDto(string Sku, string Name, string Unit, decimal Price, string Currency, string? ImageUrl, decimal Included);
+public sealed record OptionGroupDto(string Id, string Step, string Label, string? Help, string Selection, string Basis, bool Required, string? NoneLabel, IReadOnlyList<OptionItemDto> Options);
+public sealed record ProductOptionsDto(ProductDto Product, string Measure, decimal? MinimumQuantity, IReadOnlyList<OptionGroupDto> Groups);
 
 public static class CatalogEndpoints
 {
@@ -24,6 +29,8 @@ public static class CatalogEndpoints
             .WithSummary("Does the caller's store serve this ZIP? Yes/no only: zones and ZIP lists stay on the server (2n-a).");
         api.MapGet("/products", ListAsync)
             .WithSummary("Active products of the caller's tenant. With ?zip=, only products sold in that ZIP's zone, at that zone's price (2n-a).");
+        api.MapGet("/products/{sku}/options", OptionsAsync)
+            .WithSummary("A product's measurement form, minimum and option steps (add-ons, protection plans) at a ZIP's prices (2n-b..d).");
         api.MapGet("/products/{sku}", GetAsync)
             .WithSummary("One active product of the caller's tenant (with ?zip=, at that zone's price). Another tenant's SKU is a plain 404.");
 
@@ -79,6 +86,36 @@ public static class CatalogEndpoints
         return priced is null ? Results.NotFound() : Results.Ok(ToDto(priced));
     }
 
+    internal static async Task<IResult> OptionsAsync(
+        string sku, string? zip, HttpContext http, ITenantLookup tenants, IProductStore store, IPriceZoneStore zones, IOptionStore options, CancellationToken ct)
+    {
+        if (!ClaimsNormalizer.IsIdentifier(sku)) return Problem(StatusCodes.Status400BadRequest, "invalid_sku", "sku is not a valid identifier.");
+        if (zip is null) return Problem(StatusCodes.Status400BadRequest, "invalid_zip", "Options are priced per ZIP: send ?zip=.");
+
+        var tenant = await tenants.ResolveAsync(http, ct);
+        if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
+
+        var (prices, problem) = await ZonePricesAsync(tenant.TenantId!, zip, zones, ct);
+        if (problem is not null) return problem;
+
+        var product = await store.FindActiveAsync(tenant.TenantId!, sku, ct);
+        var priced = product is null ? null : Priced(product, prices);
+        if (priced is null) return Results.NotFound();
+
+        // Only steps that apply to this product, and only options with a price in this zone.
+        var groups = (await options.ListGroupsAsync(tenant.TenantId!, priced.Category, ct))
+            .Where(g => g.AppliesTo(priced))
+            .Select(g => new OptionGroupDto(g.GroupId, g.Step, g.Label, g.Help, g.Selection, g.Basis, g.Required, g.NoneLabel,
+                [.. g.Options
+                    .Where(o => prices!.ContainsKey(o.Sku))
+                    .Select(o => new OptionItemDto(o.Sku, o.Name, o.Unit, prices![o.Sku], priced.Currency, o.ImageUrl, o.Included))]))
+            .Where(g => g.Options.Count > 0)
+            .ToArray();
+
+        var measure = Categories.Find(priced.Category)?.Measure ?? "count";
+        return Results.Ok(new ProductOptionsDto(ToDto(priced), measure, await options.MinimumAsync(tenant.TenantId!, priced.Category, ct), groups));
+    }
+
     /// <summary>
     /// No zip: list prices (staff tools, 2m). A zip: that zone's prices, or the problem to return
     /// (400 invalid_zip, 422 zip_not_served). The zone id itself never goes back to the caller.
@@ -107,7 +144,7 @@ public static class CatalogEndpoints
 
     private static CategoryDto ToDto(CategoryDefinition c) => new(c.Id, c.Name, c.DefaultUnit, c.Scene,
         [.. c.Attributes.Select(a => new AttributeDefinitionDto(a.Key, a.Label, a.Kind.ToString().ToLowerInvariant(), a.Required, a.Options, a.Unit))],
-        c.Typical is null ? null : new TypicalSizeDto(c.Typical.Quantity, c.Typical.Description));
+        c.Typical is null ? null : new TypicalSizeDto(c.Typical.Quantity, c.Typical.Description), c.Measure);
 
     // RFC 9457 problem+json with the same stable "code" extension the Identity service uses.
     private static IResult Problem(int status, string code, string detail) =>

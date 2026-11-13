@@ -13,6 +13,8 @@ export interface QuoteSummary {
   lineCount: number;
   total: number;
   createdAt: string;
+  zip: string | null; // guided quotes (2n-e)
+  title: string | null; // guided quotes: the product
 }
 
 /** "My quotes" (2m): a customer's own quotes, or every quote of the store for staff (server decides). */
@@ -31,21 +33,25 @@ export interface QuoteSummary {
       @if (quotes.error()) {
         <div class="warning" role="alert"><span>{{ describe(quotes.error()) }}</span></div>
       } @else if (quotes.hasValue() && quotes.value().length === 0) {
-        <div class="card"><p>No quotes yet. <a routerLink="/quote">Start one</a>.</p></div>
+        <div class="card"><p>No quotes yet. <a routerLink="/quote/new">Start a project</a>.</p></div>
       } @else {
         <div class="list">
           @for (q of quotes.value(); track q.id) {
             <article class="card row" data-testid="quote-row" [class.highlight]="q.id === saved()">
               <div>
-                <strong>{{ q.createdAt | date: 'medium' }}</strong>
-                <span class="muted">{{ q.lineCount }} {{ q.lineCount === 1 ? 'line' : 'lines' }} · {{ q.status }}</span>
+                <strong>{{ q.title ?? (q.createdAt | date: 'medium') }}</strong>
+                <span class="muted">
+                  @if (q.title) { {{ q.createdAt | date: 'medium' }} · }
+                  @if (q.zip) { ZIP {{ q.zip }} · }
+                  {{ q.lineCount }} {{ q.lineCount === 1 ? 'line' : 'lines' }} · {{ q.status }}
+                </span>
               </div>
               <span class="total">{{ q.total | currency: q.currency }}</span>
             </article>
           }
         </div>
       }
-      <p><a routerLink="/quote" class="btn btn-primary">New quote</a></p>
+      <p><a routerLink="/quote/new" class="btn btn-primary">Start a project</a></p>
     </div>
   `,
   styles: `

@@ -22,10 +22,21 @@ public sealed record CatalogRead(IReadOnlyDictionary<string, CatalogProduct>? Pr
     public static readonly CatalogRead Unavailable = new(Products: null);
 }
 
+// 2n-b..d: GET /api/catalog/products/{sku}/options?zip= as the catalog sends it (camelCase JSON).
+public sealed record CatalogOption(string Sku, string Name, string Unit, decimal Price, string Currency, string? ImageUrl, decimal Included);
+public sealed record CatalogOptionGroup(string Id, string Step, string Label, string? Help, string Selection, string Basis, bool Required, string? NoneLabel, CatalogOption[] Options);
+public sealed record CatalogOptions(CatalogProduct Product, string Measure, decimal? MinimumQuantity, CatalogOptionGroup[] Groups);
+
+/// <summary>A product's options for a ZIP, or why not: "invalid_zip", "zip_not_served", "unknown_sku"; null = catalog down.</summary>
+public sealed record CatalogOptionsRead(CatalogOptions? Options, string? Problem = null);
+
 /// <summary>The caller's tenant's products by SKU; with a ZIP, only those sold there, at that zone's price (2n-a).</summary>
 public interface ICatalogPrices
 {
     Task<CatalogRead> GetAsync(HttpContext http, string? zip, CancellationToken ct);
+
+    /// <summary>The product, its measurement form, minimum and option steps at the ZIP's prices (2n-b..d).</summary>
+    Task<CatalogOptionsRead> GetOptionsAsync(HttpContext http, string sku, string zip, CancellationToken ct);
 }
 
 /// <summary>
@@ -67,6 +78,40 @@ public sealed class CatalogPriceClient(HttpClient http, ILogger<CatalogPriceClie
         {
             log.LogWarning(ex, "Reading catalog prices failed");
             return CatalogRead.Unavailable;
+        }
+    }
+
+    public async Task<CatalogOptionsRead> GetOptionsAsync(HttpContext context, string sku, string zip, CancellationToken ct)
+    {
+        if (!AuthenticationHeaderValue.TryParse(context.Request.Headers[HeaderNames.Authorization], out var auth) || auth.Parameter is null)
+        {
+            return new CatalogOptionsRead(null);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"/api/catalog/products/{Uri.EscapeDataString(sku)}/options?zip={Uri.EscapeDataString(zip)}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth.Parameter);
+        try
+        {
+            using var response = await http.SendAsync(request, ct);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return new CatalogOptionsRead(null, "unknown_sku");
+            if ((int)response.StatusCode is 400 or 422)
+            {
+                var problem = await response.Content.ReadFromJsonAsync<CatalogProblem>(ct);
+                return new CatalogOptionsRead(null, problem?.Code is "invalid_zip" or "zip_not_served" ? problem.Code : "unknown_sku");
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                log.LogWarning("Catalog options answered {Status}", (int)response.StatusCode);
+                return new CatalogOptionsRead(null);
+            }
+            return new CatalogOptionsRead(await response.Content.ReadFromJsonAsync<CatalogOptions>(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException { CancellationToken.IsCancellationRequested: false }
+                                       or System.Text.Json.JsonException or ArgumentException)
+        {
+            log.LogWarning(ex, "Reading catalog options failed");
+            return new CatalogOptionsRead(null);
         }
     }
 

@@ -215,6 +215,23 @@ public sealed class QuoteStoreTests(PostgresFixture pg)
         Assert.Equal(q.Priced.Lines[1].LineTotal, found.Priced.Lines[1].LineTotal);
         Assert.Equal(T0, found.CreatedAt);
         Assert.Equal("c-alice", found.CustomerId);
+        Assert.Null(found.Guided);   // a plain quote stays plain
+    }
+
+    [Fact]
+    public async Task Guided_quotes_keep_zip_request_and_line_groups()
+    {
+        var store = await NewStoreAsync();
+        var q = NewQuote("t-acme", "c-alice", T0) with
+        {
+            Guided = new GuidedInfo("62701", """{"zip":"62701","sku":"PAINT","choices":[]}""", ["product", "options"]),
+        };
+        await store.CreateAsync(q, default);
+
+        var found = (await store.FindAsync("t-acme", "c-alice", q.Id, default))!;
+        Assert.Equal("62701", found.Guided!.Zip);
+        Assert.Equal(["product", "options"], found.Guided.LineGroups);
+        Assert.Contains("\"sku\": \"PAINT\"", found.Guided.RequestJson);   // jsonb normalizes spacing
     }
 
     [Fact]

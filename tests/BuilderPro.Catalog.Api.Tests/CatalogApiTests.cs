@@ -51,6 +51,7 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
 {
     public InMemoryProductStore Store { get; } = new();
     public InMemoryPriceZoneStore Zones { get; } = new();
+    public InMemoryOptionStore Options { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -64,6 +65,8 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
             s.AddSingleton<IProductStore>(Store);
             s.RemoveAll<IPriceZoneStore>();
             s.AddSingleton<IPriceZoneStore>(Zones);
+            s.RemoveAll<IOptionStore>();
+            s.AddSingleton<IOptionStore>(Options);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup, FakeTenantLookup>();
             s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })
@@ -233,4 +236,70 @@ public sealed class CatalogApiTests(CatalogFactory f) : IClassFixture<CatalogFac
     [InlineData("ABCDE", null)]
     [InlineData("", null)]
     public void Zip_normalization(string raw, string? expected) => Assert.Equal(expected, Zip.Normalize(raw));
+}
+
+/// <summary>2n-b..d, with its own catalog so these products don't appear in the tests above.</summary>
+public sealed class CatalogOptionsTests(CatalogFactory f) : IClassFixture<CatalogFactory>, IAsyncLifetime
+{
+    private readonly CatalogFactory _f = f;
+
+    public async Task InitializeAsync()
+    {
+        await _f.Zones.UpsertZoneAsync(new PriceZone("t-acme", "downtown", "Downtown", ["60601"]), default);
+        await _f.Zones.UpsertZoneAsync(new PriceZone("t-acme", "suburbs", "Suburbs", ["62701"]), default);
+
+        // 2n-c/d: a quartz top with an edge step (one edge not sold downtown) and a plan only for quartz.
+        await _f.Store.UpsertAsync(new Product("t-acme", "CT-QTZ", "Quartz top", null, "sqft", 89m, "USD", true, "countertops", null,
+            new Dictionary<string, string> { ["material"] = "quartz", ["color"] = "White" }), default);
+        await _f.Store.UpsertAsync(new Product("t-acme", "CT-LAM", "Laminate top", null, "sqft", 28m, "USD", true, "countertops", null,
+            new Dictionary<string, string> { ["material"] = "laminate", ["color"] = "Grey" }), default);
+        foreach (var (sku, price) in new[] { ("CT-QTZ", 99m), ("CT-LAM", 30m), ("EDGE-EASED", 0m), ("PLAN-10Y", 449m) })
+        {
+            await _f.Zones.UpsertPriceAsync(new ZonePrice("t-acme", sku, "downtown", price), default);
+        }
+        await _f.Options.UpsertGroupAsync(new OptionGroup("t-acme", "countertops", "edge", "options", "Edge", null, "single", "edgeFt", true, null, null, null, 0,
+            [new("EDGE-EASED", "Eased", "ft", 0m), new("EDGE-OGEE", "Ogee", "ft", 18m)]), default);
+        await _f.Options.UpsertGroupAsync(new OptionGroup("t-acme", "countertops", "plan", "protection", "Plan", null, "single", "fixed", true, "No plan",
+            "material", ["quartz", "granite"], 1, [new("PLAN-10Y", "10-year plan", "each", 399m)]), default);
+        await _f.Options.UpsertRuleAsync(new CategoryRule("t-acme", "countertops", 25m), default);
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    // ---- 2n-b..d: a product's measurement form, minimum and option steps at a ZIP's prices ----
+
+    [Fact]
+    public async Task Options_come_with_the_zips_prices_and_only_what_applies()
+    {
+        var o = await _f.As("alice").GetFromJsonAsync<ProductOptionsDto>("/api/catalog/products/CT-QTZ/options?zip=60601");
+
+        Assert.Equal("countertop", o!.Measure);
+        Assert.Equal(25m, o.MinimumQuantity);
+        Assert.Equal(99m, o.Product.ListPrice);
+        Assert.Equal(["edge", "plan"], o.Groups.Select(g => g.Id));
+        Assert.Equal(["EDGE-EASED"], o.Groups[0].Options.Select(x => x.Sku));   // ogee has no price downtown
+        Assert.Equal(449m, o.Groups[1].Options[0].Price);                         // the zone's price, not 399
+
+        var laminate = await _f.As("alice").GetFromJsonAsync<ProductOptionsDto>("/api/catalog/products/CT-LAM/options?zip=60601");
+        Assert.Equal(["edge"], laminate!.Groups.Select(g => g.Id));              // the plan covers stone only
+    }
+
+    [Fact]
+    public async Task Options_need_a_zip_where_the_product_is_sold()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, (await _f.As("alice").GetAsync("/api/catalog/products/CT-QTZ/options")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("alice").GetAsync("/api/catalog/products/CT-QTZ/options?zip=62701")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.OK, (await _f.As("carol").GetAsync("/api/catalog/products/CT-QTZ/options?zip=60601")).StatusCode);   // another store
+    }
+
+    [Fact]
+    public void Option_groups_validate_their_rules()
+    {
+        var bad = new OptionGroup("t", "countertops", "g", "extras", "G", null, "quantity", "edgeFt", true, null, "material", null, 0, []);
+        var errors = bad.Validate();
+        Assert.Contains(errors, e => e.Contains("step"));
+        Assert.Contains(errors, e => e.Contains("basis 'choice'"));
+        Assert.Contains(errors, e => e.Contains("at least one option"));
+        Assert.Contains(errors, e => e.Contains("go together"));
+    }
 }

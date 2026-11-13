@@ -39,6 +39,7 @@ app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 app.MapQuoteEndpoints();
+app.MapGuidedQuoteEndpoints();   // 2n-b..e
 
 app.Run();
 

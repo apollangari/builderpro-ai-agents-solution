@@ -14,7 +14,14 @@ public sealed record Quote(
     string CreatedBy,       // UserKey of the creator
     string Status,          // "draft" for now; approval comes with the agents (3b)
     PricedQuote Priced,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    GuidedInfo? Guided = null);   // 2n-e: set for guided quotes
+
+/// <summary>
+/// What a guided quote was built from (2n-e): the project ZIP, the request as sent (answers and
+/// measurements, never prices) and each line's group ("product", "minimum", "options", "protection").
+/// </summary>
+public sealed record GuidedInfo(string Zip, string RequestJson, IReadOnlyList<string> LineGroups);
 
 public interface IQuoteStore
 {

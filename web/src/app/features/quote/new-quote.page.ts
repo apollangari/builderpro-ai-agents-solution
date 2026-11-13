@@ -5,6 +5,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { describeError } from '../../core/api/describe-error';
 import { Product, categoriesResource } from '../catalog/catalog.api';
 import { categoryTabs, keyAttributes } from '../catalog/picker';
+import { GuidedStepsComponent } from './guided-steps.component';
 
 /** GET /api/catalog/service-area answer. Mirrors ServiceAreaDto in C#: yes/no only, never the store's ZIP lists. */
 interface ServiceArea {
@@ -23,7 +24,7 @@ interface ServiceArea {
  */
 @Component({
   selector: 'bp-new-quote-page',
-  imports: [CurrencyPipe],
+  imports: [CurrencyPipe, GuidedStepsComponent],
   template: `
     <div class="page">
       <header class="page-head">
@@ -36,7 +37,10 @@ interface ServiceArea {
         <li [class.done]="served()" [class.current]="!served()">ZIP code</li>
         <li [class.done]="!!category()" [class.current]="served() && !category()">Project type</li>
         <li [class.done]="!!selected()" [class.current]="!!category() && !selected()">Product</li>
-        <li [class.current]="!!selected()">Measurements</li>
+        <li [class.current]="!!selected()">Measure</li>
+        <li>Options</li>
+        <li>Protection</li>
+        <li>Quote</li>
       </ol>
 
       <!-- Step 1: ZIP -->
@@ -90,6 +94,7 @@ interface ServiceArea {
               @for (t of types(); track t.id) {
                 <button type="button" class="tile" [class.active]="category() === t.id" [attr.aria-pressed]="category() === t.id"
                         (click)="pickCategory(t.id!)" [attr.data-testid]="'type-' + t.id">
+                  @if (pictureOf(t.id!); as pic) { <img [src]="pic" alt="" width="320" height="200" loading="lazy" /> }
                   <span class="tile-name">{{ t.name }}</span>
                   <span class="muted">{{ t.count }} {{ t.count === 1 ? 'option' : 'options' }}</span>
                 </button>
@@ -119,12 +124,9 @@ interface ServiceArea {
           </section>
         }
 
-        @if (chosen(); as c) {
-          <section class="card step" data-testid="step-next">
-            <h2 class="card-title">Next: measurements</h2>
-            <p>You chose <strong>{{ c.name }}</strong> at {{ c.listPrice | currency: c.currency }} / {{ unitLabel(c.unit) }} for ZIP {{ servedZip() }}.</p>
-            <p class="muted">Measuring, options and protection plans are the next steps of the guided quote and are on their way.</p>
-          </section>
+        <!-- Steps 4-7: measurements, options, protection, quote (fresh for each product) -->
+        @for (c of chosenList(); track c.sku) {
+          <bp-guided-steps [zip]="servedZip()!" [sku]="c.sku" />
         }
       }
     </div>
@@ -150,6 +152,7 @@ interface ServiceArea {
       display: grid; gap: .2rem; text-align: left; min-height: 4.5rem; padding: .8rem 1rem; cursor: pointer; font: inherit; color: var(--bp-ink);
       border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); background: var(--bp-surface);
     }
+    .tile img { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--bp-radius-sm, 6px); }
     .tile.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); }
     .tile-name { font-weight: 600; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1rem; }
@@ -196,6 +199,13 @@ export class NewQuotePage {
   protected readonly types = computed(() => categoryTabs(this.products.value(), this.categories.value()).filter((t) => t.id !== null));
   protected readonly inCategory = computed(() => this.products.value().filter((p) => p.category === this.category()));
   protected readonly chosen = computed(() => this.inCategory().find((p) => p.sku === this.selected()) ?? null);
+  /** 0 or 1 items, so the steps component is created fresh when the product changes. */
+  protected readonly chosenList = computed(() => (this.chosen() ? [this.chosen()!] : []));
+
+  /** A project type's picture: a product of that type sold in this ZIP. */
+  protected pictureOf(category: string): string | null {
+    return this.products.value().find((p) => p.category === category && p.imageUrl)?.imageUrl ?? null;
+  }
 
   protected useZip(zip: string): void {
     const value = zip.trim();
