@@ -21,6 +21,10 @@ export function describeError(err: HttpErrorResponse | { status?: number; error?
       return 'You belong to several stores. Choose one with the store picker at the top (409).';
     case 'tenant_not_permitted':
       return 'Your token names a tenant you are not a member of (403 tenant_not_permitted).';
+    case 'invalid_zip':
+      return "That doesn't look like a ZIP code. Enter 5 digits (or a Canadian postal code like K1A 0B1).";
+    case 'zip_not_served':
+      return "Your store doesn't serve this ZIP yet.";
     case 'tenant_lookup_unavailable':
       return 'The platform could not confirm your tenant right now, so nothing is shown (503). Try again shortly.';
   }

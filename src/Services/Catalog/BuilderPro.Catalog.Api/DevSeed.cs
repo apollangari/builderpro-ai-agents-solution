@@ -34,6 +34,33 @@ public static class DevSeed
                 p.Category, p.ImageUrl, p.Attributes), CancellationToken.None);
         }
         app.Logger.LogInformation("Seeded {Count} development products", products.Length);
+
+        // 2n-a price zones: every ZIP must be valid, and prices derive from the seeded list prices.
+        var zones = app.Configuration.GetSection("Catalog:DevZones").Get<SeedZone[]>() ?? [];
+        var badZips = zones.SelectMany(z => z.Zips.Where(zip => Zip.Normalize(zip) != zip).Select(zip => $"{z.TenantId}/{z.ZoneId}: bad ZIP '{zip}'")).ToArray();
+        if (badZips.Length > 0) throw new InvalidOperationException("Invalid Catalog:DevZones:\n" + string.Join("\n", badZips));
+
+        var zoneStore = app.Services.GetRequiredService<IPriceZoneStore>();
+        foreach (var z in zones)
+        {
+            await zoneStore.UpsertZoneAsync(new PriceZone(z.TenantId, z.ZoneId, z.Name, z.Zips), CancellationToken.None);
+            foreach (var p in products.Where(p => p.TenantId == z.TenantId && !z.NotSold.Contains(p.Sku)))
+            {
+                var price = Math.Round(p.ListPrice * z.PriceFactor, 2, MidpointRounding.AwayFromZero);
+                await zoneStore.UpsertPriceAsync(new ZonePrice(z.TenantId, p.Sku, z.ZoneId, price), CancellationToken.None);
+            }
+        }
+        app.Logger.LogInformation("Seeded {Count} development price zones", zones.Length);
+    }
+
+    public sealed class SeedZone
+    {
+        public string TenantId { get; set; } = "";
+        public string ZoneId { get; set; } = "";
+        public string Name { get; set; } = "";
+        public decimal PriceFactor { get; set; } = 1m;
+        public string[] Zips { get; set; } = [];
+        public string[] NotSold { get; set; } = [];
     }
 
     public sealed class SeedProduct

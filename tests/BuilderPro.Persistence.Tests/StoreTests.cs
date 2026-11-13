@@ -132,6 +132,51 @@ public sealed class ProductStoreTests(PostgresFixture pg)
 }
 
 [Collection(PostgresCollection.Name)]
+public sealed class PriceZoneStoreTests(PostgresFixture pg)
+{
+    private async Task<PostgresPriceZoneStore> NewStoreAsync()
+    {
+        var store = new PostgresPriceZoneStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);   // idempotent, like every schema step
+        return store;
+    }
+
+    [Fact]
+    public async Task Zips_map_to_one_zone_per_tenant_and_prices_stay_in_their_tenant()
+    {
+        var store = await NewStoreAsync();
+        await store.UpsertZoneAsync(new PriceZone("t-acme", "north", "North", ["60601", "60602"]), default);
+        await store.UpsertZoneAsync(new PriceZone("t-globex", "north", "North", ["60601"]), default);
+        await store.UpsertPriceAsync(new ZonePrice("t-acme", "PAINT", "north", 39.50m), default);
+        await store.UpsertPriceAsync(new ZonePrice("t-globex", "PAINT", "north", 45.00m), default);
+
+        Assert.Equal("north", await store.ZoneForZipAsync("t-acme", "60602", default));
+        Assert.Null(await store.ZoneForZipAsync("t-globex", "60602", default));
+        Assert.Equal(39.50m, (await store.PricesAsync("t-acme", "north", default))["PAINT"]);
+        Assert.Equal(45.00m, (await store.PricesAsync("t-globex", "north", default))["PAINT"]);
+    }
+
+    [Fact]
+    public async Task Re_upserting_a_zone_replaces_its_zips_and_a_zip_can_move_zones()
+    {
+        var store = await NewStoreAsync();
+        await store.UpsertZoneAsync(new PriceZone("t-acme", "a", "A", ["10001", "10002"]), default);
+        await store.UpsertZoneAsync(new PriceZone("t-acme", "b", "B", ["10003"]), default);
+
+        await store.UpsertZoneAsync(new PriceZone("t-acme", "a", "A", ["10001"]), default);    // 10002 dropped
+        await store.UpsertZoneAsync(new PriceZone("t-acme", "b", "B", ["10001", "10003"]), default); // 10001 moves to b
+
+        Assert.Equal("b", await store.ZoneForZipAsync("t-acme", "10001", default));
+        Assert.Null(await store.ZoneForZipAsync("t-acme", "10002", default));
+
+        await store.UpsertPriceAsync(new ZonePrice("t-acme", "TILE", "a", 10m), default);
+        await store.UpsertPriceAsync(new ZonePrice("t-acme", "TILE", "a", 12m), default);       // update in place
+        Assert.Equal(12m, (await store.PricesAsync("t-acme", "a", default))["TILE"]);
+    }
+}
+
+[Collection(PostgresCollection.Name)]
 public sealed class QuoteStoreTests(PostgresFixture pg)
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);

@@ -13,10 +13,19 @@ public sealed record CatalogProduct(
     [property: JsonPropertyName("listPrice")] decimal ListPrice,
     [property: JsonPropertyName("currency")] string Currency);
 
-/// <summary>The caller's tenant's products by SKU, or null when the catalog couldn't be read.</summary>
+/// <summary>
+/// What the catalog answered: the products by SKU, or why not. ZipProblem is the catalog's own code
+/// ("invalid_zip", "zip_not_served") when the ZIP was refused; Products null without it = catalog down.
+/// </summary>
+public sealed record CatalogRead(IReadOnlyDictionary<string, CatalogProduct>? Products, string? ZipProblem = null)
+{
+    public static readonly CatalogRead Unavailable = new(Products: null);
+}
+
+/// <summary>The caller's tenant's products by SKU; with a ZIP, only those sold there, at that zone's price (2n-a).</summary>
 public interface ICatalogPrices
 {
-    Task<IReadOnlyDictionary<string, CatalogProduct>?> GetAsync(HttpContext http, CancellationToken ct);
+    Task<CatalogRead> GetAsync(HttpContext http, string? zip, CancellationToken ct);
 }
 
 /// <summary>
@@ -26,31 +35,40 @@ public interface ICatalogPrices
 /// </summary>
 public sealed class CatalogPriceClient(HttpClient http, ILogger<CatalogPriceClient> log) : ICatalogPrices
 {
-    public async Task<IReadOnlyDictionary<string, CatalogProduct>?> GetAsync(HttpContext context, CancellationToken ct)
+    public async Task<CatalogRead> GetAsync(HttpContext context, string? zip, CancellationToken ct)
     {
         if (!AuthenticationHeaderValue.TryParse(context.Request.Headers[HeaderNames.Authorization], out var auth) || auth.Parameter is null)
         {
-            return null;
+            return CatalogRead.Unavailable;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/catalog/products");
+        var url = string.IsNullOrWhiteSpace(zip) ? "/api/catalog/products" : $"/api/catalog/products?zip={Uri.EscapeDataString(zip)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth.Parameter);
         try
         {
             using var response = await http.SendAsync(request, ct);
+            if ((int)response.StatusCode is 400 or 422 && zip is not null)
+            {
+                // The catalog refused the ZIP: pass its reason on instead of "catalog down".
+                var problem = await response.Content.ReadFromJsonAsync<CatalogProblem>(ct);
+                if (problem?.Code is "invalid_zip" or "zip_not_served") return new CatalogRead(null, problem.Code);
+            }
             if (!response.IsSuccessStatusCode)
             {
                 log.LogWarning("Catalog answered {Status}", (int)response.StatusCode);
-                return null;
+                return CatalogRead.Unavailable;
             }
             var products = await response.Content.ReadFromJsonAsync<CatalogProduct[]>(ct) ?? [];
-            return products.ToDictionary(p => p.Sku, StringComparer.Ordinal);
+            return new CatalogRead(products.ToDictionary(p => p.Sku, StringComparer.Ordinal));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException { CancellationToken.IsCancellationRequested: false }
                                        or System.Text.Json.JsonException or ArgumentException)
         {
             log.LogWarning(ex, "Reading catalog prices failed");
-            return null;
+            return CatalogRead.Unavailable;
         }
     }
+
+    private sealed record CatalogProblem([property: JsonPropertyName("code")] string? Code);
 }

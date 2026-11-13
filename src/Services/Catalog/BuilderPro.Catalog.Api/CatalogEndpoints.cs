@@ -9,6 +9,7 @@ public sealed record ProductDto(
 
 public sealed record AttributeDefinitionDto(string Key, string Label, string Kind, bool Required, IReadOnlyList<string>? Options, string? Unit);
 public sealed record TypicalSizeDto(decimal Quantity, string Description);
+public sealed record ServiceAreaDto(string Zip, bool Served);
 public sealed record CategoryDto(string Id, string Name, string DefaultUnit, string Scene, IReadOnlyList<AttributeDefinitionDto> Attributes, TypicalSizeDto? Typical);
 
 public static class CatalogEndpoints
@@ -19,15 +20,29 @@ public static class CatalogEndpoints
 
         api.MapGet("/categories", () => Results.Ok(Categories.All.Select(ToDto)))
             .WithSummary("The platform's product categories and their attribute definitions (2h).");
+        api.MapGet("/service-area", ServiceAreaAsync)
+            .WithSummary("Does the caller's store serve this ZIP? Yes/no only: zones and ZIP lists stay on the server (2n-a).");
         api.MapGet("/products", ListAsync)
-            .WithSummary("Active products of the caller's tenant (tenant resolved by the Identity service).");
+            .WithSummary("Active products of the caller's tenant. With ?zip=, only products sold in that ZIP's zone, at that zone's price (2n-a).");
         api.MapGet("/products/{sku}", GetAsync)
-            .WithSummary("One active product of the caller's tenant. Another tenant's SKU is a plain 404.");
+            .WithSummary("One active product of the caller's tenant (with ?zip=, at that zone's price). Another tenant's SKU is a plain 404.");
 
         return app;
     }
 
-    internal static async Task<IResult> ListAsync(string? category, HttpContext http, ITenantLookup tenants, IProductStore store, CancellationToken ct)
+    internal static async Task<IResult> ServiceAreaAsync(string? zip, HttpContext http, ITenantLookup tenants, IPriceZoneStore zones, CancellationToken ct)
+    {
+        var normalized = Zip.Normalize(zip);
+        if (normalized is null) return Problem(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1).");
+
+        var tenant = await tenants.ResolveAsync(http, ct);
+        if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
+
+        var zone = await zones.ZoneForZipAsync(tenant.TenantId!, normalized, ct);
+        return Results.Ok(new ServiceAreaDto(normalized, zone is not null));
+    }
+
+    internal static async Task<IResult> ListAsync(string? category, string? zip, HttpContext http, ITenantLookup tenants, IProductStore store, IPriceZoneStore zones, CancellationToken ct)
     {
         if (category is not null && Categories.Find(category) is null)
         {
@@ -37,21 +52,53 @@ public static class CatalogEndpoints
         var tenant = await tenants.ResolveAsync(http, ct);
         if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
 
+        var (prices, problem) = await ZonePricesAsync(tenant.TenantId!, zip, zones, ct);
+        if (problem is not null) return problem;
+
         // Filtered in memory on purpose: the tenant's whole list is ONE cache entry (2f).
         var products = await store.ListActiveAsync(tenant.TenantId!, ct);
-        return Results.Ok(products.Where(p => category is null || p.Category == category).Select(ToDto));
+        return Results.Ok(products
+            .Where(p => category is null || p.Category == category)
+            .Select(p => Priced(p, prices))
+            .OfType<Product>()
+            .Select(ToDto));
     }
 
-    internal static async Task<IResult> GetAsync(string sku, HttpContext http, ITenantLookup tenants, IProductStore store, CancellationToken ct)
+    internal static async Task<IResult> GetAsync(string sku, string? zip, HttpContext http, ITenantLookup tenants, IProductStore store, IPriceZoneStore zones, CancellationToken ct)
     {
         if (!ClaimsNormalizer.IsIdentifier(sku)) return Problem(StatusCodes.Status400BadRequest, "invalid_sku", "sku is not a valid identifier.");
 
         var tenant = await tenants.ResolveAsync(http, ct);
         if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
 
+        var (prices, problem) = await ZonePricesAsync(tenant.TenantId!, zip, zones, ct);
+        if (problem is not null) return problem;
+
         var product = await store.FindActiveAsync(tenant.TenantId!, sku, ct);
-        return product is null ? Results.NotFound() : Results.Ok(ToDto(product));
+        var priced = product is null ? null : Priced(product, prices);
+        return priced is null ? Results.NotFound() : Results.Ok(ToDto(priced));
     }
+
+    /// <summary>
+    /// No zip: list prices (staff tools, 2m). A zip: that zone's prices, or the problem to return
+    /// (400 invalid_zip, 422 zip_not_served). The zone id itself never goes back to the caller.
+    /// </summary>
+    private static async Task<(IReadOnlyDictionary<string, decimal>? Prices, IResult? Problem)> ZonePricesAsync(
+        string tenantId, string? zip, IPriceZoneStore zones, CancellationToken ct)
+    {
+        if (zip is null) return (null, null);
+        var normalized = Zip.Normalize(zip);
+        if (normalized is null) return (null, Problem(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1)."));
+        var zone = await zones.ZoneForZipAsync(tenantId, normalized, ct);
+        if (zone is null) return (null, Problem(StatusCodes.Status422UnprocessableEntity, "zip_not_served", "Your store doesn't serve this ZIP yet."));
+        return (await zones.PricesAsync(tenantId, zone, ct), null);
+    }
+
+    /// <summary>The product at the zone's price; null when it has no price there (not sold in that zone).</summary>
+    private static Product? Priced(Product p, IReadOnlyDictionary<string, decimal>? zonePrices) =>
+        zonePrices is null ? p
+        : zonePrices.TryGetValue(p.Sku, out var price) ? p with { ListPrice = price }
+        : null;
 
     // TenantId is deliberately NOT in the DTO: the caller already knows their tenant, and
     // nothing in a response should invite a client to send it back as input.

@@ -50,6 +50,7 @@ public sealed class FakeTenantLookup : ITenantLookup
 public sealed class CatalogFactory : WebApplicationFactory<Program>
 {
     public InMemoryProductStore Store { get; } = new();
+    public InMemoryPriceZoneStore Zones { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -61,6 +62,8 @@ public sealed class CatalogFactory : WebApplicationFactory<Program>
         {
             s.RemoveAll<IProductStore>();
             s.AddSingleton<IProductStore>(Store);
+            s.RemoveAll<IPriceZoneStore>();
+            s.AddSingleton<IPriceZoneStore>(Zones);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup, FakeTenantLookup>();
             s.AddAuthentication(a => { a.DefaultAuthenticateScheme = TestAuthHandler.SchemeName; a.DefaultChallengeScheme = TestAuthHandler.SchemeName; })
@@ -88,6 +91,13 @@ public sealed class CatalogApiTests(CatalogFactory f) : IClassFixture<CatalogFac
         await _f.Store.UpsertAsync(new Product("t-acme", "OLD-1", "Discontinued", null, "each", 1m, "USD", Active: false), default);
         await _f.Store.UpsertAsync(new Product("t-globex", "PAINT-1G", "Globex paint", null, "each", 42.00m, "USD", true), default);
         await _f.Store.UpsertAsync(new Product("t-globex", "DECK-8", "Globex deck board", null, "each", 18.75m, "USD", true), default);
+
+        // 2n-a zones: Acme sells both products downtown (dearer) and only paint in the suburbs.
+        await _f.Zones.UpsertZoneAsync(new PriceZone("t-acme", "downtown", "Downtown", ["60601", "60602"]), default);
+        await _f.Zones.UpsertZoneAsync(new PriceZone("t-acme", "suburbs", "Suburbs", ["62701"]), default);
+        await _f.Zones.UpsertPriceAsync(new ZonePrice("t-acme", "PAINT-1G", "downtown", 39.50m), default);
+        await _f.Zones.UpsertPriceAsync(new ZonePrice("t-acme", "TILE-12", "downtown", 24.00m), default);
+        await _f.Zones.UpsertPriceAsync(new ZonePrice("t-acme", "PAINT-1G", "suburbs", 33.00m), default);
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -161,4 +171,66 @@ public sealed class CatalogApiTests(CatalogFactory f) : IClassFixture<CatalogFac
         Assert.Equal(status, r.StatusCode);
         Assert.Equal(code, await CodeOf(r));
     }
+
+    // ---- 2n-a: ZIP service areas and zone prices ----
+
+    [Theory]
+    [InlineData("62701", true)]
+    [InlineData("60601-1234", true)]   // ZIP+4 counts as the 5-digit ZIP
+    [InlineData("90210", false)]
+    public async Task Service_area_answers_yes_or_no_only(string zip, bool served)
+    {
+        var r = await _f.As("alice").GetAsync($"/api/catalog/service-area?zip={zip}");
+        var body = await r.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Contains($"\"served\":{served.ToString().ToLowerInvariant()}", body);
+        Assert.DoesNotContain("downtown", body);   // zone ids and ZIP lists never leave the server
+        Assert.DoesNotContain("suburbs", body);
+    }
+
+    [Fact]
+    public async Task Another_store_does_not_serve_the_same_zip()
+    {
+        var area = await _f.As("carol").GetFromJsonAsync<ServiceAreaDto>("/api/catalog/service-area?zip=62701");
+        Assert.False(area!.Served);   // Acme's zones are Acme's
+    }
+
+    [Fact]
+    public async Task Products_by_zip_have_that_zones_price()
+    {
+        var downtown = await _f.As("alice").GetFromJsonAsync<ProductDto[]>("/api/catalog/products?zip=60601");
+        var suburbs = await _f.As("alice").GetFromJsonAsync<ProductDto[]>("/api/catalog/products?zip=62701");
+
+        Assert.Equal([("PAINT-1G", 39.50m), ("TILE-12", 24.00m)], downtown!.Select(p => (p.Sku, p.ListPrice)));
+        Assert.Equal([("PAINT-1G", 33.00m)], suburbs!.Select(p => (p.Sku, p.ListPrice)));   // tile isn't sold there
+    }
+
+    [Fact]
+    public async Task A_product_not_sold_in_the_zip_is_a_404()
+    {
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("alice").GetAsync("/api/catalog/products/TILE-12?zip=62701")).StatusCode);
+        var paint = await _f.As("alice").GetFromJsonAsync<ProductDto>("/api/catalog/products/PAINT-1G?zip=62701");
+        Assert.Equal(33.00m, paint!.ListPrice);
+    }
+
+    [Theory]
+    [InlineData("/api/catalog/products?zip=90210", HttpStatusCode.UnprocessableEntity, "zip_not_served")]
+    [InlineData("/api/catalog/products?zip=abc", HttpStatusCode.BadRequest, "invalid_zip")]
+    [InlineData("/api/catalog/service-area?zip=12", HttpStatusCode.BadRequest, "invalid_zip")]
+    public async Task Bad_or_unserved_zips_are_named(string url, HttpStatusCode status, string code)
+    {
+        var r = await _f.As("alice").GetAsync(url);
+        Assert.Equal(status, r.StatusCode);
+        Assert.Equal(code, await CodeOf(r));
+    }
+
+    [Theory]
+    [InlineData("75201", "75201")]
+    [InlineData(" 75201-0001 ", "75201")]
+    [InlineData("k1a0b1", "K1A 0B1")]
+    [InlineData("K1A 0B1", "K1A 0B1")]
+    [InlineData("7520", null)]
+    [InlineData("ABCDE", null)]
+    [InlineData("", null)]
+    public void Zip_normalization(string raw, string? expected) => Assert.Equal(expected, Zip.Normalize(raw));
 }

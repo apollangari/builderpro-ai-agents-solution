@@ -30,6 +30,7 @@ else
 {
     builder.Services.AddSingleton<IProductStore>(sp => sp.GetRequiredService<PostgresProductStore>());
 }
+builder.Services.AddSingleton<IPriceZoneStore, PostgresPriceZoneStore>();   // 2n-a
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
 // "Which tenant is this caller in?" -> asks the Identity service (BuilderPro.Security, LEARN 2a).
@@ -41,6 +42,7 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 await app.Services.GetRequiredService<IProductStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IPriceZoneStore>().InitializeAsync(CancellationToken.None);
 await DevSeed.RunAsync(app);
 
 app.UseExceptionHandler();

@@ -63,11 +63,22 @@ public sealed class FakeCatalog(FakeTenantLookup tenants) : ICatalogPrices
         ["t-globex"] = [new("DECK", "Cedar deck board", "each", 18.75m, "USD"), new("PAINT", "Premium paint", "each", 42.00m, "USD")],
     };
 
-    public async Task<IReadOnlyDictionary<string, CatalogProduct>?> GetAsync(HttpContext http, CancellationToken ct)
+    /// <summary>The last ZIP the API passed on. ZIP 62701: list prices. 60601: PAINT only, at 39.00. "nope": invalid. Others: not served.</summary>
+    public string? LastZip { get; private set; }
+
+    public async Task<CatalogRead> GetAsync(HttpContext http, string? zip, CancellationToken ct)
     {
-        if (Down) return null;
+        LastZip = zip;
+        if (Down) return CatalogRead.Unavailable;
         var tenant = await tenants.ResolveAsync(http, ct);
-        return ByTenant[tenant.TenantId!].ToDictionary(p => p.Sku);
+        var list = ByTenant[tenant.TenantId!];
+        return zip switch
+        {
+            null or "62701" => new CatalogRead(list.ToDictionary(p => p.Sku)),
+            "60601" => new CatalogRead(list.Where(p => p.Sku == "PAINT").Select(p => p with { ListPrice = 39.00m }).ToDictionary(p => p.Sku)),
+            "nope" => new CatalogRead(Products: null, "invalid_zip"),
+            _ => new CatalogRead(Products: null, "zip_not_served"),
+        };
     }
 }
 
@@ -411,5 +422,47 @@ public sealed class PreviewTests(QuotesFactory f) : IClassFixture<QuotesFactory>
     {
         var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "DECK", quantity = 1m } } });
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+    }
+
+    // ---- 2n-a: prices per ZIP zone ----
+
+    [Fact]
+    public async Task A_zip_prices_with_that_zones_price()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "PAINT", quantity = 2m } }, zip = "60601" });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("60601", _f.Catalog.LastZip);
+        var quote = (await r.Content.ReadFromJsonAsync<QuoteDto>())!;
+        Assert.Equal(39.00m, quote.Lines[0].UnitPrice);   // the zone's price, not the 34.98 list price
+        Assert.Equal(78.00m, quote.Subtotal);
+    }
+
+    [Fact]
+    public async Task A_product_not_sold_in_the_zip_is_rejected()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "LABOR", quantity = 1m } }, zip = "60601" });
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("unknown_sku", await r.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("99999", HttpStatusCode.UnprocessableEntity, "zip_not_served")]
+    [InlineData("nope", HttpStatusCode.BadRequest, "invalid_zip")]
+    public async Task A_refused_zip_keeps_the_catalogs_reason(string zip, HttpStatusCode status, string code)
+    {
+        var quote = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "PAINT", quantity = 1m } }, zip });
+        Assert.Equal(status, quote.StatusCode);
+        Assert.Contains(code, await quote.Content.ReadAsStringAsync());
+
+        var estimate = await _f.As("alice").PostAsJsonAsync("/api/quotes/estimates", new { items = new[] { new { sku = "PAINT", quantity = 1m } }, zip });
+        Assert.Equal(status, estimate.StatusCode);
+    }
+
+    [Fact]
+    public async Task Without_a_zip_list_prices_are_used_as_before()
+    {
+        var r = await _f.As("alice").PostAsJsonAsync("/api/quotes/preview", new { lines = new[] { new { sku = "PAINT", quantity = 1m } } });
+        Assert.Null(_f.Catalog.LastZip);
+        Assert.Equal(34.98m, (await r.Content.ReadFromJsonAsync<QuoteDto>())!.Lines[0].UnitPrice);
     }
 }

@@ -115,6 +115,21 @@
             "userinfo.token.claim": "false",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "postal_code",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "postalCode",
+            "claim.name": "postal_code",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "false"
+          }
         }
       ]
     },

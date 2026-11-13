@@ -5,7 +5,8 @@ namespace BuilderPro.Quotes.Api;
 
 // ---- Contract. Note what the request does NOT have: prices, totals, tax, tenant. ----
 public sealed record CreateQuoteLine(string Sku, decimal Quantity);
-public sealed record CreateQuoteRequest(CreateQuoteLine[]? Lines);
+// Zip (2n-a): price with the store's zone for that ZIP; omitted = list prices (staff quote builder, 2m).
+public sealed record CreateQuoteRequest(CreateQuoteLine[]? Lines, string? Zip = null);
 
 public sealed record QuoteLineDto(string Sku, string Name, string Unit, decimal Quantity, decimal UnitPrice, decimal LineTotal);
 public sealed record QuoteDto(
@@ -16,7 +17,7 @@ public sealed record QuoteErrorDto(string Code, string Message, int? Line);
 
 // Estimates (2k): price "this product at that quantity" without storing anything.
 public sealed record EstimateItem(string Sku, decimal Quantity);
-public sealed record EstimateRequest(EstimateItem[]? Items);
+public sealed record EstimateRequest(EstimateItem[]? Items, string? Zip = null);
 public sealed record EstimateDto(
     string Sku, decimal Quantity, string? Unit, decimal? UnitPrice, decimal? Subtotal, decimal? TaxRate, decimal? Tax, decimal? Total,
     string? Currency, IReadOnlyList<QuoteErrorDto> Errors);
@@ -84,12 +85,13 @@ public static class QuoteEndpoints
             .ToArray();
         if (shapeErrors.Length > 0) return (null, null, Invalid(shapeErrors));
 
-        var products = await catalog.GetAsync(http, ct);
-        if (products is null) return (null, null, Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced."));
+        var read = await catalog.GetAsync(http, request.Zip, ct);
+        if (CatalogProblem(read) is { } catalogProblem) return (null, null, catalogProblem);
+        var products = read.Products!;
 
         // SKUs the caller's tenant doesn't sell (or that are inactive) are reported, never guessed.
         var unknown = lines
-            .Select((l, i) => products.ContainsKey(l.Sku) ? null : new QuoteErrorDto("unknown_sku", $"{l.Sku} is not in your catalog.", i))
+            .Select((l, i) => products.ContainsKey(l.Sku) ? null : new QuoteErrorDto("unknown_sku", $"{l.Sku} is not in your catalog (or not sold in this ZIP).", i))
             .OfType<QuoteErrorDto>()
             .ToArray();
         if (unknown.Length > 0) return (null, null, Invalid(unknown));
@@ -153,8 +155,9 @@ public static class QuoteEndpoints
         if (!tenant.Resolved) return Problem(tenant.Status, tenant.Code, "Could not determine your tenant.");
         if (!tenant.HasScope(ReadScope)) return Problem(StatusCodes.Status403Forbidden, "missing_scope", $"Estimates need the {ReadScope} scope.");
 
-        var products = await catalog.GetAsync(http, ct);
-        if (products is null) return Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced.");
+        var read = await catalog.GetAsync(http, request.Zip, ct);
+        if (CatalogProblem(read) is { } catalogProblem) return catalogProblem;
+        var products = read.Products!;
 
         var taxRate = TaxRateFor(tenant.TenantId!, config);
         return Results.Ok(items.Select(item => Estimate(item, products, taxRate)));
@@ -167,7 +170,7 @@ public static class QuoteEndpoints
             new(i.Sku, i.Quantity, null, null, null, null, null, null, null, [new QuoteErrorDto(code, message, null)]);
 
         if (!ClaimsNormalizer.IsIdentifier(item.Sku)) return Fail(item, "invalid_sku", "sku is not a valid identifier.");
-        if (!products.TryGetValue(item.Sku, out var p)) return Fail(item, "unknown_sku", $"{item.Sku} is not in your catalog.");
+        if (!products.TryGetValue(item.Sku, out var p)) return Fail(item, "unknown_sku", $"{item.Sku} is not in your catalog (or not sold in this ZIP).");
 
         var result = QuotePricer.Price(new QuoteInput([new QuoteLineInput(p.Sku, p.Name, p.Unit, item.Quantity, new Money(p.ListPrice, p.Currency))], taxRate));
         if (!result.Succeeded)
@@ -179,6 +182,15 @@ public static class QuoteEndpoints
         var q = result.Quote!;
         return new(item.Sku, item.Quantity, p.Unit, p.ListPrice, q.Subtotal.Amount, q.TaxRate, q.Tax.Amount, q.Total.Amount, q.Total.Currency, []);
     }
+
+    /// <summary>The catalog couldn't give prices: a refused ZIP keeps its own code, anything else is 503 (fail closed).</summary>
+    private static IResult? CatalogProblem(CatalogRead read) => read switch
+    {
+        { Products: not null } => null,
+        { ZipProblem: "invalid_zip" } => Problem(StatusCodes.Status400BadRequest, "invalid_zip", "zip must be a US ZIP (12345) or a Canadian postal code (A1A 1A1)."),
+        { ZipProblem: "zip_not_served" } => Problem(StatusCodes.Status422UnprocessableEntity, "zip_not_served", "Your store doesn't serve this ZIP yet."),
+        _ => Problem(StatusCodes.Status503ServiceUnavailable, "catalog_unavailable", "Prices could not be read from the catalog, so nothing was priced."),
+    };
 
     /// <summary>Per-tenant tax rate from configuration (Quotes:TaxRates:{tenant}), else Quotes:DefaultTaxRate, else 0.</summary>
     internal static decimal TaxRateFor(string tenantId, IConfiguration config) =>
