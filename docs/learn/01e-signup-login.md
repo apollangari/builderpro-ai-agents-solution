@@ -66,8 +66,7 @@ else works.
    consent, hours and address are stored there.
 
 ## 6. Not yet
-- **Email verification and "Forgot password"** need an SMTP server (Mailpit locally, a real
-  sender in Azure). Until then `verifyEmail` is off locally.
+- ~~Email verification and "Forgot password"~~: done in 1f (Mailpit locally, Zoho opt-in; docs/email.md).
 - **Consent audit trail:** the platform should record *when* and *to which wording* a customer
   consented (and every change). Keycloak keeps only the current value.
 - **Tenant switcher** for users who are customers of several stores.

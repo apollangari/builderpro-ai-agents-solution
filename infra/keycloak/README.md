@@ -26,7 +26,9 @@ User ids are **fixed** in the realm file so the Identity service can seed member
 - **Continue with Google** appears only when the AppHost has `Parameters:google-client-id` and
   `Parameters:google-client-secret` in user secrets (see docs/learn/01e-signup-login.md).
 - Theme: `themes/builderpro` (Navy & Sand CSS on Keycloak's `keycloak.v2` templates), bind-mounted by the AppHost.
-- No SMTP locally yet: email verification is off and "Forgot password?" can't send mail.
+- **Email:** verification is ON. Emails go to **Mailpit** (http://localhost:8025) unless the `smtp-*` user secrets
+  switch on real sending (Zoho for builderpro.everisys.com). See [docs/email.md](../../docs/email.md).
+  The seeded test users are already verified.
 
 Changed the realm file? The container has no persistent volume, so it re-imports on every start.
 Stop and start the AppHost.

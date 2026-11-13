@@ -247,7 +247,7 @@
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
   "rememberMe": true,
-  "verifyEmail": false,
+  "verifyEmail": true,
   "loginTheme": "builderpro",
   "identityProviders": [
     {
@@ -268,5 +268,17 @@
         "guiOrder": "1"
       }
     }
-  ]
+  ],
+  "smtpServer": {
+    "host": "${SMTP_HOST:mailpit}",
+    "port": "${SMTP_PORT:1025}",
+    "from": "${SMTP_FROM:no-reply@builderpro.local}",
+    "fromDisplayName": "${SMTP_FROM_NAME:BuilderPro}",
+    "replyTo": "${SMTP_REPLY_TO:}",
+    "ssl": "${SMTP_SSL:false}",
+    "starttls": "${SMTP_STARTTLS:false}",
+    "auth": "${SMTP_AUTH:false}",
+    "user": "${SMTP_USER:}",
+    "password": "${SMTP_PASSWORD:}"
+  }
 }

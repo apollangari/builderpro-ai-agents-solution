@@ -16,6 +16,16 @@ var builder = DistributedApplication.CreateBuilder(args);
 // the token issuer ("iss") contains the URL: it must be identical for the browser
 // (which gets the token) and the API (which validates it).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Mailpit (1f): catches every email locally (sign-up verification, password reset).
+// Open its "http" endpoint in the dashboard (http://localhost:8025) to read them.
+// Keycloak reaches it as "mailpit:1025" on the Aspire container network. DEV ONLY.
+// ---------------------------------------------------------------------------
+var mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.33")
+    .WithHttpEndpoint(port: 8025, targetPort: 8025, name: "http")
+    .WithEndpoint(targetPort: 1025, name: "smtp", scheme: "tcp")
+    .WithHttpHealthCheck("/livez", endpointName: "http");
+
 var keycloakAdminPassword = builder.AddParameter("keycloak-admin-password", value: "admin", secret: true);
 
 var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.4")
@@ -29,7 +39,8 @@ var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26
     .WithBindMount("../../../infra/keycloak/themes/builderpro", "/opt/keycloak/themes/builderpro", isReadOnly: true)
     .WithHttpEndpoint(port: 8080, targetPort: 8080, name: "http")
     .WithHttpEndpoint(targetPort: 9000, name: "management")
-    .WithHttpHealthCheck("/health/ready", endpointName: "management");
+    .WithHttpHealthCheck("/health/ready", endpointName: "management")
+    .WaitFor(mailpit);                  // realm import configures SMTP -> mailpit
 
 // "Continue with Google" (1e): only when BOTH user secrets exist, so the app runs without them.
 //   dotnet user-secrets set "Parameters:google-client-id" "..."     --project src/AppHost/BuilderPro.AppHost
@@ -44,6 +55,28 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:google-client-i
         .WithEnvironment("GOOGLE_ENABLED", "true")
         .WithEnvironment("GOOGLE_CLIENT_ID", googleClientId)
         .WithEnvironment("GOOGLE_CLIENT_SECRET", googleClientSecret);
+}
+
+// Real email instead of Mailpit (1f), e.g. Zoho for builderpro.everisys.com. Opt-in: only when the
+// smtp-* user secrets exist, so local testing never emails real people by accident.
+//   Parameters:smtp-host      smtp.zoho.com (or smtppro.zoho.com / smtp.zoho.eu / smtp.zoho.in for your region/plan)
+//   Parameters:smtp-port      587 (STARTTLS)
+//   Parameters:smtp-user      the Zoho mailbox, e.g. no-reply@builderpro.everisys.com
+//   Parameters:smtp-password  a Zoho APP-SPECIFIC password (never the account password)
+//   Parameters:smtp-from      optional; defaults to smtp-user
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:smtp-host"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:smtp-password"]))
+{
+    var smtpUser = builder.Configuration["Parameters:smtp-user"] ?? "";
+    keycloak
+        .WithEnvironment("SMTP_HOST", builder.AddParameter("smtp-host"))
+        .WithEnvironment("SMTP_PORT", builder.Configuration["Parameters:smtp-port"] ?? "587")
+        .WithEnvironment("SMTP_STARTTLS", "true")
+        .WithEnvironment("SMTP_SSL", "false")
+        .WithEnvironment("SMTP_AUTH", "true")
+        .WithEnvironment("SMTP_USER", smtpUser)
+        .WithEnvironment("SMTP_PASSWORD", builder.AddParameter("smtp-password", secret: true))
+        .WithEnvironment("SMTP_FROM", builder.Configuration["Parameters:smtp-from"] ?? smtpUser);
 }
 
 var realmUrl = ReferenceExpression.Create($"{keycloak.GetEndpoint("http")}/realms/builderpro");
