@@ -67,7 +67,7 @@ describe('App shell', () => {
 
     const menu = el.querySelector('[data-testid="account-menu"]')!;
     expect(button.getAttribute('aria-expanded')).toBe('true');
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((m) => m.textContent?.trim())).toEqual(['My projects', 'My quotes', 'Account details', 'Sign out']);
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((m) => m.textContent?.trim())).toEqual(['My projects', 'My quotes', 'Account', 'Sign out']);
     expect(el.querySelector('nav')?.textContent).not.toContain('My quotes'); // moved out of the main nav
   });
 

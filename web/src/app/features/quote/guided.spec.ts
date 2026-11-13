@@ -41,3 +41,15 @@ describe('guided quote helpers', () => {
       .toEqual(['Edge style', 'Protection plan']);
   });
 });
+
+describe('layoutSketch follows the chosen layout', () => {
+  const answers = (layout: string) => ({
+    measurements: { countertop: { layout, countertop: [{ widthIn: 120, depthIn: 25 }, { widthIn: 96, depthIn: 25 }], island: [], backsplash: [] } },
+  });
+  it('L turns the second run down the wall; galley puts it opposite; straight continues it', async () => {
+    const { layoutSketch } = await import('./guided');
+    expect(layoutSketch(answers('l')).rects[1]).toEqual({ x: 0, y: 25, w: 25, h: 96, kind: 'top' });
+    expect(layoutSketch(answers('galley')).rects[1]).toEqual({ x: 0, y: 67, w: 96, h: 25, kind: 'top' });
+    expect(layoutSketch(answers('straight')).rects[1]).toEqual({ x: 120, y: 0, w: 96, h: 25, kind: 'top' });
+  });
+});

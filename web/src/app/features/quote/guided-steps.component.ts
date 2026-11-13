@@ -8,12 +8,15 @@ import {
   answersFromChoices, defaultMeasureForm, formFromAnswers, measurementsBody, missingLabels, problemMessages, toChoices,
 } from './guided';
 
-const LAYOUTS = [
-  { id: 'straight', label: 'Straight' },
-  { id: 'l', label: 'L-shaped' },
-  { id: 'l-island', label: 'L-shaped with island' },
-  { id: 'u', label: 'U-shaped' },
-  { id: 'u-island', label: 'U-shaped with island' },
+/** Kitchen layouts with a top-down picture: counter runs (and islands) as rects in a 60 x 44 box. */
+const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][] }[] = [
+  { id: 'straight', label: 'Straight', runs: [[4, 4, 52, 9]], islands: [] },
+  { id: 'galley', label: 'Galley', runs: [[4, 4, 52, 9], [4, 31, 52, 9]], islands: [] },
+  { id: 'l', label: 'L-shaped', runs: [[4, 4, 52, 9], [4, 13, 9, 27]], islands: [] },
+  { id: 'l-island', label: 'L with island', runs: [[4, 4, 52, 9], [4, 13, 9, 27]], islands: [[25, 24, 24, 10]] },
+  { id: 'u', label: 'U-shaped', runs: [[4, 4, 52, 9], [4, 13, 9, 27], [47, 13, 9, 27]], islands: [] },
+  { id: 'u-island', label: 'U with island', runs: [[4, 4, 52, 9], [4, 13, 9, 27], [47, 13, 9, 27]], islands: [[20, 25, 20, 9]] },
+  { id: 'peninsula', label: 'Peninsula', runs: [[4, 4, 52, 9], [4, 13, 9, 27], [13, 31, 26, 9]], islands: [] },
 ];
 
 /**
@@ -36,11 +39,20 @@ const LAYOUTS = [
         <h2 class="card-title">Measurements</h2>
         @switch (o.measure) {
           @case ('countertop') {
-            <label class="inline">Layout
-              <select [value]="form().countertop.layout" (change)="setLayout($any($event.target).value)" data-testid="layout-select">
-                @for (l of layouts; track l.id) { <option [value]="l.id">{{ l.label }}</option> }
-              </select>
-            </label>
+            <fieldset class="layouts" data-testid="layout-picker">
+              <legend>Layout</legend>
+              @for (l of layouts; track l.id) {
+                <label class="layout" [class.active]="form().countertop.layout === l.id" [attr.data-testid]="'layout-' + l.id">
+                  <input type="radio" name="layout" class="sr-only" [checked]="form().countertop.layout === l.id" (change)="setLayout(l.id)" />
+                  <svg viewBox="0 0 60 44" aria-hidden="true">
+                    <rect x="1" y="1" width="58" height="42" rx="3" class="room" />
+                    @for (r of l.runs; track $index) { <rect [attr.x]="r[0]" [attr.y]="r[1]" [attr.width]="r[2]" [attr.height]="r[3]" rx="1" class="run" /> }
+                    @for (r of l.islands; track $index) { <rect [attr.x]="r[0]" [attr.y]="r[1]" [attr.width]="r[2]" [attr.height]="r[3]" rx="1" class="isl" /> }
+                  </svg>
+                  <span>{{ l.label }}</span>
+                </label>
+              }
+            </fieldset>
             <p class="muted small">Split each run into rectangles. A standard countertop is 25 in deep.</p>
             @for (part of parts; track part.key) {
               @if (part.key === 'countertop' || form().countertop[part.key].length) {
@@ -223,7 +235,17 @@ const LAYOUTS = [
     legend { font-weight: 600; padding: 0 .35rem; }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
     .chips { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .inline { display: flex; align-items: center; gap: .6rem; font-weight: 600; }
+    .layouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: .4rem; }
+    .section { gap: .4rem .8rem; }
+    fieldset { padding: .6rem .8rem; gap: .45rem; }
+    .layout { display: grid; justify-items: center; gap: .25rem; padding: .4rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); cursor: pointer; font-size: .85rem; text-align: center; }
+    .layout:hover { border-color: var(--bp-accent); }
+    .layout.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); font-weight: 600; }
+    .layout:has(input:focus-visible) { outline: 2px solid var(--bp-accent); outline-offset: 2px; }
+    .layout svg { width: 100%; max-width: 5.5rem; height: auto; }
+    .layout .room { fill: var(--bp-surface); stroke: var(--bp-border-strong); stroke-width: .8; }
+    .layout .run { fill: var(--bp-ink-muted); }
+    .layout .isl { fill: var(--bp-accent); }
     .small { font-size: .85rem; margin: 0; }
     input.num { width: 4.5rem; min-height: var(--bp-tap); padding: 0 .5rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; }
     input.num.wide { width: 7rem; }

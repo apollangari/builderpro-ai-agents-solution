@@ -68,7 +68,7 @@ interface MyMembership {
                 <p class="who">{{ displayName() }}</p>
                 <a role="menuitem" routerLink="/projects" data-testid="menu-projects">My projects</a>
                 <a role="menuitem" routerLink="/quotes">My quotes</a>
-                <a role="menuitem" routerLink="/me">Account details</a>
+                <a role="menuitem" routerLink="/account" data-testid="menu-account">Account</a>
                 <button type="button" role="menuitem" class="signout" (click)="signOut()" data-testid="menu-signout">Sign out</button>
               </div>
             }

@@ -291,9 +291,15 @@ export function layoutSketch(answers: ProjectAnswers | null | undefined): { rect
   const rects: SketchRect[] = [];
   const first = tops[0];
   if (first) rects.push({ x: 0, y: 0, w: first.widthIn, h: first.depthIn, kind: 'top' });
-  // Second run turns down the left wall (L); a third turns down the right wall (U); more continue the first run.
+  // Follow the chosen layout: straight runs continue the first; galley puts the second run opposite;
+  // L turns down the left wall; U adds the right wall; peninsula sticks out from the left run's end.
+  const layout: string = c.layout ?? 'l';
+  let x = first?.widthIn ?? 0;
   tops.slice(1).forEach((s, i) => {
-    if (i === 0) rects.push({ x: 0, y: first.depthIn, w: s.depthIn, h: s.widthIn, kind: 'top' });
+    if (layout === 'straight') { rects.push({ x, y: 0, w: s.widthIn, h: s.depthIn, kind: 'top' }); x += s.widthIn; }
+    else if (layout === 'galley') rects.push({ x: 0, y: first.depthIn + 42, w: s.widthIn, h: s.depthIn, kind: 'top' });
+    else if (i === 0) rects.push({ x: 0, y: first.depthIn, w: s.depthIn, h: s.widthIn, kind: 'top' });
+    else if (i === 1 && layout === 'peninsula') rects.push({ x: tops[1].depthIn, y: first.depthIn + tops[1].widthIn - s.depthIn, w: s.widthIn, h: s.depthIn, kind: 'top' });
     else if (i === 1) rects.push({ x: first.widthIn - s.depthIn, y: first.depthIn, w: s.depthIn, h: s.widthIn, kind: 'top' });
     else rects.push({ x: first.widthIn + (i - 2) * 6, y: 0, w: s.widthIn, h: s.depthIn, kind: 'top' });
   });

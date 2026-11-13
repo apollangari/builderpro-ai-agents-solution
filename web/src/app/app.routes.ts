@@ -21,6 +21,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/assistant/assistant.page').then((m) => m.AssistantPage),
   },
   {
+    path: 'account',
+    canActivate: [autoLoginPartialRoutesGuard],
+    loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage),
+  },
+  {
     path: 'projects',
     canActivate: [autoLoginPartialRoutesGuard],
     loadComponent: () => import('./features/projects/projects.page').then((m) => m.ProjectsPage),
