@@ -21,3 +21,26 @@ export interface Product {
 export function productsResource(): HttpResourceRef<Product[]> {
   return httpResource<Product[]>(() => '/api/catalog/products', { defaultValue: [] });
 }
+
+/** GET /api/catalog/categories. Mirrors CategoryDto in C#. */
+export interface AttributeDefinition {
+  key: string;
+  label: string;
+  kind: 'choice' | 'number' | 'text';
+  required: boolean;
+  options: string[] | null;
+  unit: string | null;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  defaultUnit: string;
+  scene: string; // the visualizer scene (2l)
+  attributes: AttributeDefinition[];
+}
+
+/** The platform's categories and their attribute definitions; the same for every retailer. */
+export function categoriesResource(): HttpResourceRef<Category[]> {
+  return httpResource<Category[]>(() => '/api/catalog/categories', { defaultValue: [] });
+}

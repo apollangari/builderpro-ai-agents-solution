@@ -1,11 +1,13 @@
 import { Component, computed, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { describeError } from '../../core/api/describe-error';
-import { Product, productsResource } from './catalog.api';
+import { Category, categoriesResource, productsResource } from './catalog.api';
+import { Filters, applyPicker, categoryTabs, filterGroups, keyAttributes } from './picker';
 
 /**
- * Your retailer's catalog. Server data is one httpResource; the search box is a plain signal,
- * and the visible list is computed from both. No RxJS, no subscriptions.
+ * Product picker (2j): category tabs, attribute filters, image cards.
+ * Signal-first: two httpResources (products, categories), three signals (category, filters, query),
+ * and everything on screen is a computed of those. No RxJS, no subscriptions.
  */
 @Component({
   selector: 'bp-catalog-page',
@@ -50,9 +52,43 @@ import { Product, productsResource } from './catalog.api';
           <span>{{ describe(products.error()) }}</span>
         </div>
       } @else {
-        <p class="count" data-testid="count">
-          {{ visible().length }} of {{ products.value().length }} products
-        </p>
+        <nav class="tabs" role="tablist" aria-label="Categories" data-testid="category-tabs">
+          @for (t of tabs(); track t.id) {
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              [class.active]="t.id === category()"
+              [attr.aria-selected]="t.id === category()"
+              [attr.data-testid]="'tab-' + (t.id ?? 'all')"
+              (click)="selectCategory(t.id)"
+            >
+              {{ t.name }} <span class="tab-count">{{ t.count }}</span>
+            </button>
+          }
+        </nav>
+
+        @if (groups().length > 0) {
+          <div class="filters" data-testid="filters">
+            @for (g of groups(); track g.key) {
+              <label class="filter">
+                <span>{{ g.label }}</span>
+                <select [attr.data-testid]="'filter-' + g.key" [value]="filters()[g.key] ?? ''" (change)="setFilter(g.key, $any($event.target).value)">
+                  <option value="">Any</option>
+                  @for (v of g.values; track v.value) {
+                    <option [value]="v.value">{{ v.value.replaceAll('-', ' ') }} ({{ v.count }})</option>
+                  }
+                </select>
+              </label>
+            }
+            @if (hasFilters()) {
+              <button type="button" class="btn" data-testid="clear-filters" (click)="filters.set({})">Clear filters</button>
+            }
+          </div>
+        }
+
+        <p class="count" data-testid="count">{{ visible().length }} of {{ products.value().length }} products</p>
+
         <div class="grid">
           @for (p of visible(); track p.sku) {
             <article class="card product" data-testid="product">
@@ -64,6 +100,13 @@ import { Product, productsResource } from './catalog.api';
                 <span class="unit">{{ p.unit === 'each' ? 'each' : 'per ' + p.unit }}</span>
               </div>
               <h2 class="card-title">{{ p.name }}</h2>
+              @if (badges(p.sku).length) {
+                <div class="chips" data-testid="attributes">
+                  @for (a of badges(p.sku); track a) {
+                    <span class="badge">{{ a }}</span>
+                  }
+                </div>
+              }
               @if (p.description) {
                 <p class="desc">{{ p.description }}</p>
               }
@@ -71,10 +114,10 @@ import { Product, productsResource } from './catalog.api';
             </article>
           } @empty {
             <div class="empty card" data-testid="empty">
-              @if (query()) {
-                Nothing matches “{{ query() }}”.
+              @if (query() || hasFilters()) {
+                Nothing matches{{ query() ? ' "' + query() + '"' : '' }}{{ hasFilters() ? ' with these filters' : '' }}.
               } @else {
-                Your retailer has no active products yet.
+                Your retailer has no active products here yet.
               }
             </div>
           }
@@ -94,6 +137,23 @@ import { Product, productsResource } from './catalog.api';
     .search svg { width: 1rem; height: 1rem; flex: none; }
     .search input { border: 0; outline: 0; background: transparent; color: var(--bp-ink); font: inherit; width: 100%; min-height: calc(var(--bp-tap) - 2px); }
 
+    .tabs { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .25rem; margin-bottom: 1rem; scrollbar-width: thin; }
+    .tab {
+      flex: none; display: inline-flex; align-items: center; gap: .45rem; min-height: var(--bp-tap); padding: 0 1rem;
+      border-radius: 999px; border: 1px solid var(--bp-border-strong); background: var(--bp-surface);
+      color: var(--bp-ink); font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer;
+    }
+    .tab:hover { background: var(--bp-surface-muted); }
+    .tab.active { background: var(--bp-accent); border-color: var(--bp-accent); color: var(--bp-on-accent); }
+    .tab-count { font-size: .75rem; font-weight: 600; opacity: .8; }
+
+    .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; margin-bottom: 1rem; }
+    .filter { display: grid; gap: .25rem; font-size: .8rem; color: var(--bp-ink-muted); font-weight: 600; }
+    .filter select {
+      min-height: var(--bp-tap); min-width: 10rem; padding: 0 .75rem; border-radius: var(--bp-radius-md);
+      border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; text-transform: capitalize;
+    }
+
     .count { color: var(--bp-ink-muted); font-size: .85rem; margin: 0 0 .9rem; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(16rem, 100%), 1fr)); gap: 1.1rem; }
     .product { display: flex; flex-direction: column; gap: .55rem; padding-top: 0; overflow: hidden; }
@@ -102,6 +162,7 @@ import { Product, productsResource } from './catalog.api';
     .product:hover { border-color: var(--bp-border-strong); }
     .top { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
     .unit { color: var(--bp-ink-muted); font-size: .8rem; }
+    .chips .badge { text-transform: capitalize; }
     .desc { margin: 0; color: var(--bp-ink-muted); font-size: .88rem; }
     .price { margin-top: auto; padding-top: .6rem; font-family: var(--bp-font-heading); font-size: 1.4rem; font-weight: 700; color: var(--bp-accent); }
     .empty { grid-column: 1 / -1; text-align: center; color: var(--bp-ink-muted); padding: 2.5rem; }
@@ -109,13 +170,38 @@ import { Product, productsResource } from './catalog.api';
 })
 export class CatalogPage {
   protected readonly products = productsResource();
-  protected readonly query = signal('');
+  protected readonly categories = categoriesResource();
   protected readonly describe = describeError;
   protected readonly placeholders = [1, 2, 3, 4, 5, 6];
 
-  protected readonly visible = computed<Product[]>(() => {
-    const q = this.query().trim().toLowerCase();
-    const all = this.products.value();
-    return q ? all.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)) : all;
+  protected readonly category = signal<string | null>(null);
+  protected readonly filters = signal<Filters>({});
+  protected readonly query = signal('');
+
+  private readonly categoryById = computed(() => new Map<string, Category>(this.categories.value().map((c) => [c.id, c])));
+
+  protected readonly tabs = computed(() => categoryTabs(this.products.value(), this.categories.value()));
+  protected readonly groups = computed(() => {
+    const id = this.category();
+    return filterGroups(this.products.value(), id ? this.categoryById().get(id) : undefined);
   });
+  protected readonly hasFilters = computed(() => Object.values(this.filters()).some((v) => !!v));
+  protected readonly visible = computed(() => applyPicker(this.products.value(), this.category(), this.filters(), this.query()));
+
+  /** Card badges per SKU, recomputed only when the data changes. */
+  private readonly badgeMap = computed(
+    () => new Map(this.products.value().map((p) => [p.sku, keyAttributes(p, this.categoryById().get(p.category))])),
+  );
+  protected badges(sku: string): string[] {
+    return this.badgeMap().get(sku) ?? [];
+  }
+
+  protected selectCategory(id: string | null): void {
+    this.category.set(id);
+    this.filters.set({}); // filters belong to a category
+  }
+
+  protected setFilter(key: string, value: string): void {
+    this.filters.update((f) => ({ ...f, [key]: value }));
+  }
 }
