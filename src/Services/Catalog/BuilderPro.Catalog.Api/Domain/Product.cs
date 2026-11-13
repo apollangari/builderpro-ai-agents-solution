@@ -15,7 +15,14 @@ public sealed record Product(
     string Unit,            // "each", "m2", "m", "litre" ... how ListPrice is measured
     decimal ListPrice,      // money is decimal, never double
     string Currency,        // ISO 4217, e.g. "USD"
-    bool Active);           // inactive products are hidden, not deleted (quotes may reference them)
+    bool Active,            // inactive products are hidden, not deleted (quotes may reference them)
+    string Category = "other",                              // a Categories.All id (2h)
+    string? ImageUrl = null,                                // sample image (2i)
+    IReadOnlyDictionary<string, string>? Attributes = null) // keys/values per the category's definitions
+{
+    public IReadOnlyDictionary<string, string> AttributeValues => Attributes ?? EmptyAttributes;
+    private static readonly IReadOnlyDictionary<string, string> EmptyAttributes = new Dictionary<string, string>();
+}
 
 public interface IProductStore
 {

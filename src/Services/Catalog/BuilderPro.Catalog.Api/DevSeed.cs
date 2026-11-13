@@ -19,9 +19,19 @@ public static class DevSeed
 
         var products = app.Configuration.GetSection("Catalog:DevProducts").Get<SeedProduct[]>() ?? [];
         var store = app.Services.GetRequiredService<IProductStore>();
+        // Fail fast: a seed product that breaks its category's rules stops startup, with every problem listed.
+        var problems = products
+            .SelectMany(p => Categories.Validate(p.Category, p.Attributes).Select(e => $"{p.TenantId}/{p.Sku}: {e}"))
+            .ToArray();
+        if (problems.Length > 0)
+        {
+            throw new InvalidOperationException("Invalid Catalog:DevProducts:\n" + string.Join("\n", problems));
+        }
+
         foreach (var p in products)
         {
-            await store.UpsertAsync(new Product(p.TenantId, p.Sku, p.Name, p.Description, p.Unit, p.ListPrice, p.Currency, Active: true), CancellationToken.None);
+            await store.UpsertAsync(new Product(p.TenantId, p.Sku, p.Name, p.Description, p.Unit, p.ListPrice, p.Currency, Active: true,
+                p.Category, p.ImageUrl, p.Attributes), CancellationToken.None);
         }
         app.Logger.LogInformation("Seeded {Count} development products", products.Length);
     }
@@ -35,5 +45,8 @@ public static class DevSeed
         public string Unit { get; set; } = "each";
         public decimal ListPrice { get; set; }
         public string Currency { get; set; } = "USD";
+        public string Category { get; set; } = "other";
+        public string? ImageUrl { get; set; }
+        public Dictionary<string, string> Attributes { get; set; } = [];
     }
 }

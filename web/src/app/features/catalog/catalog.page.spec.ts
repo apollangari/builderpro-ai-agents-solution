@@ -4,8 +4,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { CatalogPage } from './catalog.page';
 
 const products = [
-  { sku: 'PAINT-1G', name: 'Interior paint, white', description: null, unit: 'each', listPrice: 34.98, currency: 'USD' },
-  { sku: 'TILE-12', name: 'Ceramic floor tile', description: 'Per square metre', unit: 'm2', listPrice: 21.5, currency: 'USD' },
+  { sku: 'PAINT-1G', name: 'Interior paint, white', description: null, unit: 'each', listPrice: 34.98, currency: 'USD', category: 'paint', imageUrl: null, attributes: {} },
+  { sku: 'TILE-12', name: 'Ceramic floor tile', description: 'Per square metre', unit: 'm2', listPrice: 21.5, currency: 'USD', category: 'flooring', imageUrl: null, attributes: {} },
 ];
 
 describe('CatalogPage', () => {

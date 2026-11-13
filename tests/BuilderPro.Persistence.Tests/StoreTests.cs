@@ -103,6 +103,21 @@ public sealed class ProductStoreTests(PostgresFixture pg)
     }
 
     [Fact]
+    public async Task Category_image_and_attributes_round_trip_through_jsonb()
+    {
+        var store = await NewStoreAsync();
+        var attrs = new Dictionary<string, string> { ["material"] = "quartz", ["color"] = "Calacatta white", ["thicknessCm"] = "3" };
+        await store.UpsertAsync(new Product("t-acme", "CT-1", "Quartz", null, "sqft", 89m, "USD", true, "countertops", "/products/ct-1.svg", attrs), default);
+
+        var p = (await store.FindActiveAsync("t-acme", "CT-1", default))!;
+
+        Assert.Equal("countertops", p.Category);
+        Assert.Equal("/products/ct-1.svg", p.ImageUrl);
+        Assert.Equal("Calacatta white", p.AttributeValues["color"]);
+        Assert.Equal(3, p.AttributeValues.Count);
+    }
+
+    [Fact]
     public async Task Inactive_products_are_hidden_and_upsert_updates_in_place()
     {
         var store = await NewStoreAsync();

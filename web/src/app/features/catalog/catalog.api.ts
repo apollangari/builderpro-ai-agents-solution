@@ -8,6 +8,9 @@ export interface Product {
   unit: string; // how listPrice is measured: "each", "m2", "hour", ...
   listPrice: number; // money from the server, displayed only: the UI never computes a price
   currency: string; // ISO 4217
+  category: string; // a category id from GET /api/catalog/categories (2h)
+  imageUrl: string | null;
+  attributes: Record<string, string>;
 }
 
 /**
