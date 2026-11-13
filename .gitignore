@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+*.trx
+
+# Node / Angular
+node_modules/
+web/dist/
+web/.angular/
+
+# Env / secrets
+.env
+*.local.json
+appsettings.*.local.json
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
