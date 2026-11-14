@@ -2,13 +2,15 @@ import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { StoreFeatures } from '../../core/tenant/store-features';
+import { HomeBanner } from './home-banner.component';
 
 /** One centred card: what BuilderPro is, and the next step for this visitor. */
 @Component({
   selector: 'bp-home-page',
-  imports: [RouterLink],
+  imports: [RouterLink, HomeBanner],
   template: `
     <div class="page">
+      <bp-home-banner class="hero" />
       <section class="card home">
         <span class="eyebrow">Home improvement, priced for your address</span>
         <h1>What would you like to do?</h1>
@@ -36,8 +38,10 @@ import { StoreFeatures } from '../../core/tenant/store-features';
     </div>
   `,
   styles: `
-    .page { display: grid; place-items: center; min-height: calc(100dvh - 10rem); }
-    .home { width: min(36rem, 100%); text-align: center; padding: 2.25rem 2rem; }
+    .page { display: grid; justify-items: center; align-content: start; gap: 1.5rem; padding-top: .5rem; }
+    .hero { width: 100%; }
+    .home { width: min(36rem, 100%); text-align: center; padding: 2.25rem 2rem; position: relative; }
+    @media (min-width: 48rem) { .home { margin-top: -4.5rem; } }
     h1 { font-size: clamp(1.6rem, 4vw, 2.1rem); }
     .lede { margin: .9rem auto 1.6rem; color: var(--bp-ink-muted); max-width: 30rem; }
     .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; }
