@@ -77,7 +77,14 @@ as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e 
 ## Final phase: gaps (after all development work, owner 2026-11-13)
 - **Keycloak keeps no data between restarts** (found 2026-11-14): runtime accounts (Google sign-in, sign-ups) are lost on every app start and get a new id (so their memberships no longer match). Fix: persistent Keycloak storage (volume or Postgres) and apply realm-file changes with keycloak-config-cli instead of a one-time import.
 
-Fixed last, together, once the roadmap above is built: Accept/price hold follows 6a everywhere; the product
+**Done 2026-11-14:** price-hold wording follows 6a (concierge told too); the product assistant prices by ZIP;
+percentage-priced options (6 % lifetime plan); the cabinets and sink-plumbing steps; a compact Measure screen;
+store-desk form for measured sizes; visit times marked against contact hours; the notification sender; the
+final balance payment. Still open from the LEARN lists: refunds, inviting customers, a real telephony/SMS
+provider, A2A streaming and a persistent task store, the customer's own time zone, MCP dynamic client
+registration, and Keycloak persistence (above).
+
+Original list: Accept/price hold follows 6a everywhere; the product
 assistant (3a) prices by ZIP; the Measure screen fits without scrolling for big kitchens; the cabinets
 question and plumbing disconnect options; percentage-priced protection plans; and anything else noted
 as "not yet" in the LEARN docs.

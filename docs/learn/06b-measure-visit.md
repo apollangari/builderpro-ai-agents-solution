@@ -22,8 +22,8 @@ Tables: `quotes.visits` (schema v7), with one active visit per project. The proj
 Web: the workspace shows the times grouped by day, the booked visit with **Change time**, and **Confirm new total** for a changed measured quote.
 
 Not yet:
-- a staff screen to enter the measured sizes (API only; it comes with 3e's staff console)
+- ~~a staff screen to enter the measured sizes~~: done (store desk, Enter measured sizes)
 - what happens if the customer declines the new total (deposit refund)
-- offering only times inside the customer's contact hours
+- ~~times inside the customer's contact hours~~: done (marked; others faded but selectable)
 - reminders before the visit
 - per-measurer calendars

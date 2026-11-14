@@ -39,5 +39,5 @@ provider callback (signed) --1-3--> confirm link by email (+ text if allowed) --
 
 - A real telephony provider: ACS Call Automation with speech, or Twilio with gather.
 - The customer's own time zone (today: the store's zone).
-- A staff list of `person_requested` calls (comes with 3e).
+- ~~A staff list of `person_requested` calls~~: done (store desk, Work tab).
 - Speech understanding beyond keypresses.

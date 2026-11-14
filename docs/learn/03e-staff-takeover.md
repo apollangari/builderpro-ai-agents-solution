@@ -27,6 +27,6 @@ Every action calls the API's own endpoint (6b `visit/measured`, 6c `install`), w
 
 ## Not yet
 
-- A form for **different** measured sizes; until then, the API.
+- ~~A form for different measured sizes~~: done (Enter measured sizes).
 - Notifying staff when a chat needs them; for now they poll every 5 s.
 - Transcripts given to the model after a hand-back; it sees the page's own history.

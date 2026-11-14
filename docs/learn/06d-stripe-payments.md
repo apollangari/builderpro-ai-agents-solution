@@ -75,6 +75,6 @@ created ──> processing ──> succeeded   (confirmed by the provider)
 ## Not yet
 
 - Refunds (from Stripe, for example when the customer declines the measured total).
-- The final balance payment.
+- ~~The final balance payment~~: done (payment kind balance, same flow).
 - A staff screen for the payment history.
 - Stripe Connect payouts to each store.

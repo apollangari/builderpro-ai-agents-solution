@@ -17,6 +17,6 @@ Tables: `quotes.install_events` and `quotes.notifications` (schema v8, with `sen
 Web: the workspace shows the order confirmation, the install date and a four-step strip (done, current, next). The journey tracker moves to Install.
 
 Not yet:
-- the sender that delivers the outbox through Mailpit or SMS, within the customer's contact hours
-- a staff screen for the steps (API only; it comes with 3e)
-- the final balance payment at done
+- ~~the sender~~: done (NotificationSender: email via SMTP/Mailpit any time, texts within contact hours)
+- ~~a staff screen for the steps~~: done (store desk, Work tab)
+- ~~the final balance payment~~: done (Pay balance when the job is done)
