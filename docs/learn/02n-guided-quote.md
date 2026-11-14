@@ -61,6 +61,7 @@ ZIP 60601 (every price, options included, is 12 % higher).
 
 ## 6. Not yet
 
-- The cabinets question ("are cabinets part of the project?") and plumbing disconnect.
-- Percentage-priced protection plans (flat per zone only).
-- The concierge (3b) filling these same steps.
+Done since (final gaps, 2026-11-14):
+- The cabinets question ("Your cabinets": new cabinets first, or level and shim) and "Sink plumbing" disconnect and reconnect, both optional steps.
+- Percentage-priced options: unit `percent`, e.g. Acme's 6 % lifetime plan, priced last on the rest of the job.
+- The concierge (3b) fills these same steps.
