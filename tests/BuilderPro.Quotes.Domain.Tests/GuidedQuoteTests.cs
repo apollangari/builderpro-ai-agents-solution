@@ -251,3 +251,58 @@ public sealed class CallWindowTests
         Assert.Empty(CallWindows.ProposeVisits(slots, "evenings", Central));
     }
 }
+
+
+/// <summary>Gap fix: protection plans (any option) priced as a percentage of the job.</summary>
+public sealed class PercentOptionTests
+{
+    private static Money Usd(decimal a) => new(a, "USD");
+
+    private static GuidedRequest Request(decimal sqft, string planSku) => new(
+        new GuidedProduct("CT-QTZ", "Quartz", "sqft", Usd(89m)),
+        new Measurement("countertop", new Dictionary<string, decimal> { ["sqft"] = sqft, ["edgeFt"] = 10m }, "sqft"),
+        null,
+        [
+            new GuidedGroup("edge", "options", "Edge", "single", "edgeFt", true, null, [new GuidedOption("EDGE-OGEE", "Ogee", "ft", Usd(18m))]),
+            new GuidedGroup("plan", "protection", "Plan", "single", "fixed", true, "No plan",
+                [new GuidedOption("PLAN-5Y", "5-year plan", "each", Usd(299m)), new GuidedOption("PLAN-LIFE", "Lifetime plan", "percent", Usd(6m))]),
+        ],
+        [new GuidedChoice("edge", "EDGE-OGEE"), new GuidedChoice("plan", planSku)],
+        0.0825m);
+
+    [Fact]
+    public void A_percentage_plan_is_that_share_of_everything_else_rounded_to_the_cent()
+    {
+        var q = GuidedQuoteBuilder.Build(Request(30m, "PLAN-LIFE")).Quote!;
+        var plan = q.Lines.Single(l => l.Sku == "PLAN-LIFE");
+        // job = 30 x 89 + 10 x 18 = 2850.00; 6 % = 171.00
+        Assert.Equal(("%", 6m, Usd(171.00m)), (plan.Unit, plan.Quantity, plan.LineTotal));
+        Assert.Contains("6% of the job", plan.Name);
+        Assert.Equal(Usd(3021.00m), q.Subtotal);
+    }
+
+    [Fact]
+    public void Fixed_plans_are_unchanged_and_a_bad_percentage_is_refused()
+    {
+        Assert.Equal(Usd(299m), GuidedQuoteBuilder.Build(Request(30m, "PLAN-5Y")).Quote!.Lines.Single(l => l.Sku == "PLAN-5Y").LineTotal);
+        var bad = Request(30m, "PLAN-LIFE") with
+        {
+            Groups = [Request(30m, "PLAN-LIFE").Groups[0], new GuidedGroup("plan", "protection", "Plan", "single", "fixed", true, null, [new GuidedOption("PLAN-LIFE", "Lifetime", "percent", Usd(150m))])],
+        };
+        Assert.Contains(GuidedQuoteBuilder.Build(bad).Errors, e => e.Code == "invalid_percentage");
+    }
+
+    [Fact]
+    public void At_the_measure_visit_the_percentage_is_of_the_re_priced_job_at_held_prices()
+    {
+        var held = GuidedQuoteBuilder.Build(Request(30m, "PLAN-LIFE")).Quote!;                     // 6 % of 2850 = 171
+        var today = GuidedQuoteBuilder.Build(Request(40m, "PLAN-LIFE") with
+        {
+            Product = new GuidedProduct("CT-QTZ", "Quartz", "sqft", Usd(95m)),                     // price went up since
+        }).Quote!;
+        var measured = HeldPrices.Apply(today, held);
+        // 40 x 89 (held) + 10 x 18 = 3740.00; 6 % = 224.40 (not the old 171, not today's price)
+        Assert.Equal(Usd(224.40m), measured.Lines.Single(l => l.Sku == "PLAN-LIFE").LineTotal);
+        Assert.Equal(Usd(3964.40m), measured.Subtotal);
+    }
+}

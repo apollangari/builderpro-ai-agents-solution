@@ -46,6 +46,9 @@ public sealed record GuidedResult(PricedQuote? Quote, IReadOnlyList<string> Line
 ///      Zero quantity (e.g. no island, no edge) adds no line.
 ///   4. Quantity groups: each option x (count - included), when above zero. Counts are whole numbers 0..100.
 ///   5. Required groups without an answer are listed in Missing; the quote still previews, but can't be saved.
+///   7. Percentage options (unit "percent", e.g. a protection plan at 6 % of the job): priced LAST, on the sum
+///      of every other line, as one line with unit "%", quantity = the percentage and unit price = the job / 100,
+///      so its total is exactly that percentage, rounded to the cent like any line.
 ///   6. Answers must name a known group and one of its options; "none" only where the group allows it;
 ///      at most one answer per single group, one per option in a quantity group.
 /// </summary>
@@ -54,6 +57,10 @@ public static class GuidedQuoteBuilder
     public const string Single = "single";
     public const string QuantitySelection = "quantity";
     public const string Fixed = "fixed";
+    /// <summary>An option priced as a percentage of the rest of the job (its price is the percentage).</summary>
+    public const string PercentUnit = "percent";
+    /// <summary>The unit of the resulting quote line: quantity = the percentage.</summary>
+    public const string PercentLineUnit = "%";
     public const decimal MaxOptionCount = 100m;
 
     public static GuidedResult Build(GuidedRequest request)
@@ -105,12 +112,18 @@ public static class GuidedQuoteBuilder
         }
         if (errors.Count > 0) return new(null, [], [], errors);
 
-        // 3 + 4: option lines, in the store's group order.
+        // 3 + 4: option lines, in the store's group order. Percentage options wait for the rest (7).
+        var percent = new List<(string Step, GuidedOption Option)>();
         foreach (var g in request.Groups)
         {
             foreach (var c in request.Choices.Where(c => c.Group == g.Id && c.Sku is not null))
             {
                 var o = g.Options.First(x => x.Sku == c.Sku);
+                if (o.Unit == PercentUnit)
+                {
+                    percent.Add((g.Step, o));
+                    continue;
+                }
                 decimal qty;
                 if (g.Selection == QuantitySelection) qty = Math.Max(0, c.Quantity!.Value - o.Included);
                 else if (g.Basis == Fixed) qty = 1;
@@ -123,6 +136,18 @@ public static class GuidedQuoteBuilder
         }
         if (errors.Count > 0) return new(null, [], [], errors);
 
+        // 7: percentage options on the rest of the job.
+        foreach (var (step, o) in percent)
+        {
+            if (o.Price.Amount <= 0 || o.Price.Amount > 100)
+            {
+                errors.Add(new("invalid_percentage", $"{o.Name}: a percentage between 0 and 100."));
+                continue;
+            }
+            Add(step, PercentLine(o.Sku, $"{o.Name} ({o.Price.Amount:0.##}% of the job)", o.Price.Amount, lines));
+        }
+        if (errors.Count > 0) return new(null, [], [], errors);
+
         // 5: what's still to answer.
         var answered = request.Choices.Select(c => c.Group).ToHashSet(StringComparer.Ordinal);
         var missing = request.Groups.Where(g => g.Required && !answered.Contains(g.Id)).Select(g => g.Id).ToArray();
@@ -131,5 +156,13 @@ public static class GuidedQuoteBuilder
         return priced.Succeeded
             ? new(priced.Quote, lineGroups, missing, [])
             : new(null, [], missing, priced.Errors);
+    }
+
+    /// <summary>pct % of the given lines (each rounded to the cent, as the pricer does), as one quote line.</summary>
+    public static QuoteLineInput PercentLine(string sku, string name, decimal pct, IEnumerable<QuoteLineInput> others)
+    {
+        var job = others.Where(l => l.Unit != PercentLineUnit).Aggregate(0m, (sum, l) => sum + Rounding.ToMinorUnit(l.UnitPrice * l.Quantity).Amount);
+        var currency = others.First().UnitPrice.Currency;
+        return new QuoteLineInput(sku, name, PercentLineUnit, pct, new Money(job / 100m, currency));
     }
 }

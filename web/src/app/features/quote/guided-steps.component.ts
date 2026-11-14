@@ -145,7 +145,7 @@ const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][
                         <input type="radio" [name]="g.id" [checked]="singleSku(g.id) === x.sku" (change)="pickSingle(g.id, x.sku)" [attr.data-testid]="'opt-' + x.sku" />
                         @if (x.imageUrl) { <img [src]="x.imageUrl" alt="" width="120" height="75" /> }
                         <span>{{ x.name }}</span>
-                        <span class="muted">{{ x.price === 0 ? 'Included' : (x.price | currency: x.currency) + ' / ' + unitLabel(x.unit) }}</span>
+                        <span class="muted">{{ x.unit === 'percent' ? x.price + '% of the job' : x.price === 0 ? 'Included' : (x.price | currency: x.currency) + ' / ' + unitLabel(x.unit) }}</span>
                       </label>
                     }
                     @if (g.noneLabel) {
@@ -193,7 +193,7 @@ const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][
               <tbody>
                 @for (l of grp.lines; track l.sku) {
                   <tr data-testid="guided-line">
-                    <td>{{ l.name }} <span class="muted">{{ l.quantity | number: '1.0-3' }} {{ unitLabel(l.unit) }} × {{ l.unitPrice | currency: q.currency }}</span></td>
+                    <td>{{ l.name }} <span class="muted">@if (l.unit === '%') { {{ l.quantity | number: '1.0-2' }}% of {{ l.unitPrice * 100 | currency: q.currency }} } @else { {{ l.quantity | number: '1.0-3' }} {{ unitLabel(l.unit) }} × {{ l.unitPrice | currency: q.currency }} }</span></td>
                     <td class="num">{{ l.lineTotal | currency: q.currency }}</td>
                   </tr>
                 }

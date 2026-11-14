@@ -11,9 +11,14 @@ public static class HeldPrices
         ArgumentNullException.ThrowIfNull(measured);
         ArgumentNullException.ThrowIfNull(held);
         var heldPrice = held.Lines.GroupBy(l => l.Sku, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().UnitPrice, StringComparer.Ordinal);
-        var result = QuotePricer.Price(new QuoteInput(
-            [.. measured.Lines.Select(l => new QuoteLineInput(l.Sku, l.Name, l.Unit, l.Quantity, heldPrice.GetValueOrDefault(l.Sku, l.UnitPrice)))],
-            held.TaxRate));
+        var lines = measured.Lines
+            .Where(l => l.Unit != GuidedQuoteBuilder.PercentLineUnit)
+            .Select(l => new QuoteLineInput(l.Sku, l.Name, l.Unit, l.Quantity, heldPrice.GetValueOrDefault(l.Sku, l.UnitPrice)))
+            .ToList();
+        // A percentage option (e.g. a protection plan at 6 %) is a percentage of the RE-PRICED job, not its old amount.
+        foreach (var p in measured.Lines.Where(l => l.Unit == GuidedQuoteBuilder.PercentLineUnit))
+            lines.Add(GuidedQuoteBuilder.PercentLine(p.Sku, p.Name, p.Quantity, lines));
+        var result = QuotePricer.Price(new QuoteInput(lines, held.TaxRate));
         return result.Quote ?? throw new InvalidOperationException($"Re-pricing at held prices failed: {string.Join(", ", result.Errors.Select(e => e.Code))}");
     }
 }

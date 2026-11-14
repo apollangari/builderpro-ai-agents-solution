@@ -58,12 +58,13 @@ public static class DevSeed
         {
             await zoneStore.UpsertZoneAsync(new PriceZone(z.TenantId, z.ZoneId, z.Name, z.Zips), CancellationToken.None);
             // Products and option items get zone prices the same way (an option is sold where it has a price).
-            var priceable = products.Where(p => p.TenantId == z.TenantId).Select(p => (p.Sku, p.ListPrice))
-                .Concat(groups.Where(g => g.TenantId == z.TenantId).SelectMany(g => g.Options).Select(o => (o.Sku, o.ListPrice)))
+            var priceable = products.Where(p => p.TenantId == z.TenantId).Select(p => (p.Sku, p.ListPrice, Percent: false))
+                .Concat(groups.Where(g => g.TenantId == z.TenantId).SelectMany(g => g.Options).Select(o => (o.Sku, o.ListPrice, Percent: o.Unit == "percent")))
                 .DistinctBy(x => x.Sku);
-            foreach (var (sku, listPrice) in priceable.Where(x => !z.NotSold.Contains(x.Sku)))
+            foreach (var (sku, listPrice, isPercent) in priceable.Where(x => !z.NotSold.Contains(x.Sku)))
             {
-                var price = Math.Round(listPrice * z.PriceFactor, 2, MidpointRounding.AwayFromZero);
+                // A percentage option (unit "percent") is the same percentage in every zone; amounts scale with the zone.
+                var price = isPercent ? listPrice : Math.Round(listPrice * z.PriceFactor, 2, MidpointRounding.AwayFromZero);
                 await zoneStore.UpsertPriceAsync(new ZonePrice(z.TenantId, sku, z.ZoneId, price), CancellationToken.None);
             }
         }
