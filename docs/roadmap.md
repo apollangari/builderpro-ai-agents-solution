@@ -57,6 +57,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 |---|---|---|
 | 3d | **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
+| 6d | **Stripe payments** (owner: the old app integrates with Stripe, so we need it): the 5 % deposit (6a) and later the balance go through Stripe Checkout in test mode first (`Payments:Provider = stripe`); the payment is confirmed by Stripe's signed webhook (idempotent, verified signature), never by the browser; refunds from Stripe. Keys only in user secrets / Key Vault | Paying a deposit with a Stripe test card holds the price; a replayed or unsigned webhook changes nothing; the simulated provider stays for tests |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
 | 4b | **AI phone scheduling (store option)**: after the deposit (6a), the scheduling agent (4a) calls the customer only if they opted in to automated calls, only within their contact hours (their time zone), says it's an automated assistant, offers 2-3 measure-visit slots and a person; the customer confirms the slot from a text/email link (the agent never books on its own); opt-out on every call, recorded; telephony via Azure Communication Services (or Twilio) | No call without automated-call consent or outside the customer's hours; a slot is booked only by the customer's confirmation; opt-outs stop all calls immediately |
@@ -80,6 +81,9 @@ as "not yet" in the LEARN docs.
 
 ## Decisions
 
+- **Payments go through Stripe (2026-11-14, owner, 6d).** The old app already integrates with Stripe, so
+  BuilderPro needs it too. The simulated provider (6a) stays for development and tests; Stripe Checkout +
+  webhook is the real provider.
 - **Sales on behalf of a customer earn commission (2026-11-13, owner, 1i).** A salesperson prepares the quote
   on the customer's behalf; acceptance and the 5 % deposit go through the customer's usual flow. The project,
   its quote and its deposit/order are credited to that salesperson, and a commission report lists each
