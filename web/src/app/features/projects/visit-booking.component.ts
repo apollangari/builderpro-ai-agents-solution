@@ -21,6 +21,12 @@ interface Slot {
       <p class="ok" data-testid="visit-booked">Measure visit booked for {{ visit()!.start | date: 'EEEE, MMM d, h:mm a' }}.</p>
       <div class="actions"><button type="button" class="btn" (click)="changing.set(true)" data-testid="visit-change">Change time</button></div>
     } @else {
+      @if (suggestedSlot(); as s) {
+        <div class="suggested" data-testid="visit-suggested">
+          <span>From your call: <strong>{{ s.start | date: 'EEEE, MMM d, h:mm a' }}</strong></span>
+          <button type="button" class="btn btn-primary" (click)="book(s.start)" [disabled]="booking.isLoading()" data-testid="visit-confirm-suggested">Confirm this time</button>
+        </div>
+      }
       <p>Pick a time for the measure visit. We confirm the sizes on site; your price per unit stays held.</p>
       @if (slots.error()) {
         <div class="warning" role="alert"><span>{{ describe(slots.error()) }}</span></div>
@@ -51,12 +57,22 @@ interface Slot {
     .day { display: grid; gap: .3rem; align-content: start; }
     .label { font-weight: 600; font-size: .9rem; }
     .slot { justify-content: center; }
+    .suggested { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem .8rem; margin-bottom: .6rem;
+                 border-radius: var(--bp-radius-md); background: var(--bp-accent-soft); }
   `,
 })
 export class VisitBookingComponent {
   readonly projectId = input.required<string>();
   readonly visit = input<VisitInfo | null | undefined>(null);
   readonly booked = output<VisitInfo>();
+  /** 4b: a time the customer picked on a scheduling call (from the confirm link's ?visit=). Confirmed only here, by them. */
+  readonly suggested = input<string | undefined>(undefined);
+  protected readonly suggestedSlot = computed(() => {
+    const want = this.suggested();
+    if (!want || !this.slots.hasValue()) return null;
+    const t = new Date(want).getTime();
+    return this.slots.value().find((s) => s.available && new Date(s.start).getTime() === t) ?? null;
+  });
 
   protected readonly changing = signal(false);
   /** A week's worth first, so the card doesn't scroll; the rest on request. */

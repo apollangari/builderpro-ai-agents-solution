@@ -6,6 +6,7 @@ import { describeError } from '../../core/api/describe-error';
 import { GuidedStepsComponent } from '../quote/guided-steps.component';
 import { GROUP_TITLES, GuidedLine, Project, STAGES, VisitInfo, layoutSketch } from '../quote/guided';
 import { VisitBookingComponent } from './visit-booking.component';
+import { AutomatedCallsComponent } from './automated-calls.component';
 import { leaveFor } from './pay.page';
 import { ConciergePanelComponent } from './concierge-panel.component';
 import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tracker.component';
@@ -19,7 +20,7 @@ import { StoreFeatures } from '../../core/tenant/store-features';
  */
 @Component({
   selector: 'bp-workspace-page',
-  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent, ProgressTrackerComponent, VisitBookingComponent],
+  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent, ProgressTrackerComponent, VisitBookingComponent, AutomatedCallsComponent],
   template: `
     <div class="page">
       @if (loaded.error()) {
@@ -128,7 +129,8 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                 } @else if (q.held) {
                   <p class="ok" data-testid="held">Deposit of {{ p.deposit!.amount | currency: p.deposit!.currency }} paid on {{ p.deposit!.paidAt | date: 'mediumDate' }}. Your price is held; next is the measure visit.</p>
                   @if (p.stage === 'measure') {
-                    <bp-visit-booking [projectId]="p.id" [visit]="p.visit" (booked)="visitBooked($event)" />
+                    <bp-visit-booking [projectId]="p.id" [visit]="p.visit" [suggested]="visit()" (booked)="visitBooked($event)" />
+                    @if (!p.visit && features.isCustomer()) { <bp-automated-calls [projectId]="p.id" /> }
                   }
                 } @else if (q.status === 'accepted' && q.current && !q.expired) {
                   <p data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. Pay a {{ depositPercent() }}% deposit to hold this price; until then it can change.</p>
@@ -239,6 +241,8 @@ export class WorkspacePage {
 
   /** Bound from the route (/projects/:id). */
   readonly id = input.required<string>();
+  /** 4b: ?visit= from a scheduling call's confirm link. */
+  readonly visit = input<string | undefined>(undefined);
 
   protected readonly stages = STAGES;
   protected readonly titles = GROUP_TITLES;

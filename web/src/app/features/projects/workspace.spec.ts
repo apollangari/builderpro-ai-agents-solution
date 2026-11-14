@@ -119,6 +119,7 @@ describe('WorkspacePage (2n-f)', () => {
       { start: '2026-11-14T15:00:00Z', available: true },
       { start: '2026-11-14T19:00:00Z', available: false },
     ]);
+    http.expectOne('/api/projects/p1/automated-calls').flush({ available: false, consented: false, wordingVersion: 'v7', wording: '', phone: null, hours: 'business', calls: [] });
     await settle();
     const slots = el.querySelectorAll<HTMLButtonElement>('[data-testid="visit-slot"]');
     expect([slots[0].disabled, slots[1].disabled]).toEqual([false, true]);
@@ -129,6 +130,26 @@ describe('WorkspacePage (2n-f)', () => {
     book.flush({ id: 'v1', start: '2026-11-14T15:00:00Z', status: 'booked', measuredAt: null });
     await settle();
     expect(el.querySelector('[data-testid="visit-booked"]')).not.toBeNull();
+  });
+
+  it('4b: the store offers automated calls; turning them on sends the wording version', async () => {
+    const el = await open(project({
+      stage: 'measure', quote: { ...issued, status: 'accepted', held: true },
+      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'succeeded', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
+    }));
+    http.expectOne('/api/projects/p1/visit/slots').flush([]);
+    http.expectOne('/api/projects/p1/automated-calls').flush({ available: true, consented: false, wordingVersion: 'v7', wording: 'Our automated assistant may call…', phone: null, hours: 'business', calls: [] });
+    await settle();
+    expect(el.querySelector('[data-testid="call-wording"]')?.textContent).toContain('automated assistant');
+    el.querySelector<HTMLButtonElement>('[data-testid="calls-on"]')!.click();
+    await settle();
+    const put = http.expectOne((r) => r.url === '/api/projects/p1/automated-calls' && r.method === 'PUT');
+    expect(put.request.body).toEqual({ consent: true, wordingVersion: 'v7' });
+    put.flush({ available: true, consented: true, wordingVersion: 'v7', wording: '…', phone: '+1 555', hours: 'business',
+      calls: [{ id: 'c1', status: 'scheduled', dueAt: '2026-11-13T15:00:00Z', attempts: 0, proposals: [], chosenStart: null, note: null }] });
+    await settle();
+    expect(el.querySelector('[data-testid="call-status"]')?.textContent).toContain('within your contact hours');
+    expect(el.querySelector('[data-testid="calls-off"]')).not.toBeNull();
   });
 
   it('the installation shows its steps and date', async () => {

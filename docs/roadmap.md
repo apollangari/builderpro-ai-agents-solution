@@ -11,6 +11,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable |
 |---|---|
+| 4b | AI phone scheduling (store option phone-scheduling): separate automated-call consent with wording version (append-only); calls only inside contact hours and 9-20; offers up to 3 visit times, 0 for a person, 9 to stop (opt-out cancels every call); never books (confirm link -> customer confirms); dispatcher + telephony seam (simulated; ACS/Twilio later); signed provider callback ([LEARN](learn/04b-phone-scheduling.md)) |
 | 4a | Python **LangGraph** scheduling agent over **A2A 1.0** (agent card, JSON-RPC SendMessage): proposes up to 3 measure-visit times within the customer's contact hours, never books; the concierge calls it (propose_visit_times); on-behalf-of at every hop (Assistant -> builderpro-scheduling -> builderpro-api), no token passthrough; Aspire uvicorn app with OTLP traces; CI pytest job ([LEARN](learn/04a-a2a-scheduling-agent.md)) |
 | 3c | Catalog/quote tools over **MCP** (Streamable HTTP, read and price only) with **on-behalf-of** auth: the Assistant accepts tokens for itself and calls the platform with an RFC 8693 / Entra-OBO exchanged token for the same user (no passthrough); RFC 9728 discovery; realm clients builderpro-assistant and builderpro-mcp ([LEARN](learn/03c-mcp.md)) |
 | 6d | Stripe payments + payment state machine (owner): created -> processing -> succeeded / failed / unknown, reconciliation by status lookup or signed webhook; every move recorded (payment_events); Stripe Checkout with idempotent sessions, signed-webhook verification (replay window, amount check), background reconciler, test keys only outside Production; simulated provider gains Decline ([LEARN](learn/06d-stripe-payments.md)) |
@@ -60,7 +61,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 |---|---|---|
 | 3d | **ON HOLD (owner, 2026-11-14).** **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
-| 4b | **AI phone scheduling (store option)**: after the deposit (6a), the scheduling agent (4a) calls the customer only if they opted in to automated calls, only within their contact hours (their time zone), says it's an automated assistant, offers 2-3 measure-visit slots and a person; the customer confirms the slot from a text/email link (the agent never books on its own); opt-out on every call, recorded; telephony via Azure Communication Services (or Twilio) | No call without automated-call consent or outside the customer's hours; a slot is booked only by the customer's confirmation; opt-outs stop all calls immediately |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
 
 ## Target experience (owner's mockup, 2026-11-13)
@@ -73,6 +73,7 @@ Principle shown on the page: *the concierge can prepare things, but never accept
 as 2n (guided steps) -> 2n-f (workspace) -> 3b (concierge) -> 3d (photos) -> 3e (takeover) -> 6a-c.
 
 ## Final phase: gaps (after all development work, owner 2026-11-13)
+- **Keycloak keeps no data between restarts** (found 2026-11-14): runtime accounts (Google sign-in, sign-ups) are lost on every app start and get a new id (so their memberships no longer match). Fix: persistent Keycloak storage (volume or Postgres) and apply realm-file changes with keycloak-config-cli instead of a one-time import.
 
 Fixed last, together, once the roadmap above is built: Accept/price hold follows 6a everywhere; the product
 assistant (3a) prices by ZIP; the Measure screen fits without scrolling for big kitchens; the cabinets

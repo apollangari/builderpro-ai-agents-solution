@@ -204,7 +204,7 @@ public sealed class IdentityApiTests(IdentityFactory f) : IClassFixture<Identity
     {
         var acme = await _f.CreateClient().GetFromJsonAsync<StoreInfoDto>("/api/identity/stores/acme");
         var globex = await _f.CreateClient().GetFromJsonAsync<StoreInfoDto>("/api/identity/stores/globex");
-        Assert.Equal(["guided", "help-chat", "concierge"], acme!.Features);
+        Assert.Equal(["guided", "help-chat", "concierge", "phone-scheduling"], acme!.Features);   // 4b: Acme offers phone scheduling
         Assert.Equal(["guided", "help-chat"], globex!.Features);   // no AI concierge in Globex's package
     }
 }
