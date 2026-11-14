@@ -1,52 +1,69 @@
+using BuilderPro.Quotes.Domain;
 using Dapper;
 using Npgsql;
 
 namespace BuilderPro.Quotes.Api;
 
 /// <summary>
-/// A 5 % advance on an accepted quote (6a). Paid = the quote's price is held and the project moves on
+/// A 5 % advance on an accepted quote (6a). Succeeded = the quote's price is held and the project moves on
 /// to the measure visit. Amount is computed by DepositPolicy from the STORED quote total, never sent in.
+/// Its Status follows the payment state machine (6d, <see cref="PaymentStates"/>).
 /// </summary>
 public sealed record Deposit(
     Guid Id, string TenantId, Guid ProjectId, Guid QuoteId, string CustomerId,
     decimal Amount, string Currency, decimal Percent, string Status, string Provider,
-    DateTimeOffset CreatedAt, DateTimeOffset? PaidAt, string? PaidBy = null)
+    DateTimeOffset CreatedAt, DateTimeOffset? PaidAt, string? PaidBy = null,
+    string? ProviderRef = null, string? CheckoutUrl = null, DateTimeOffset? CheckoutExpiresAt = null)   // 6d: the provider's checkout
 {
-    public bool Paid => Status == DepositStatus.Paid;
+    public bool Paid => Status == PaymentStates.Succeeded;
 }
 
-public static class DepositStatus
-{
-    public const string Pending = "pending";
-    public const string Paid = "paid";
-}
+/// <summary>One recorded move of the payment state machine: the audit trail.</summary>
+public sealed record PaymentEvent(long Id, Guid DepositId, string From, string To, DateTimeOffset At, string Source, string? Detail);
 
 public interface IDepositStore
 {
     Task InitializeAsync(CancellationToken ct);
+
+    /// <summary>A new deposit in state "created" (its creation is recorded as the first event).</summary>
     Task CreateAsync(Deposit deposit, CancellationToken ct);
+
     Task<Deposit?> FindAsync(string tenantId, string? customerId, Guid id, CancellationToken ct);
 
-    /// <summary>The latest deposit for this quote (pending or paid), or null.</summary>
+    /// <summary>The latest deposit for this quote (a succeeded one first), or null.</summary>
     Task<Deposit?> ForQuoteAsync(string tenantId, Guid quoteId, CancellationToken ct);
 
-    /// <summary>pending -> paid, once. False when it isn't pending (already paid, or not this tenant's).</summary>
-    Task<bool> MarkPaidAsync(string tenantId, Guid id, DateTimeOffset at, string paidBy, CancellationToken ct);
+    /// <summary>
+    /// Moves the payment from -> to (checked by <see cref="PaymentStates.CanMove"/>) only if it is still in
+    /// "from" (so two webhooks can't both win), and records the move. paidBy is set when it succeeds.
+    /// False when it wasn't in "from" any more.
+    /// </summary>
+    Task<bool> TransitionAsync(string tenantId, Guid id, string from, string to, DateTimeOffset at, string source, string? detail, string? paidBy, CancellationToken ct);
 
-    /// <summary>The project's PAID deposit, or null (6b: a measured quote inherits it).</summary>
+    /// <summary>6d: remember where the customer pays (the provider's session and its URL).</summary>
+    Task SetCheckoutAsync(string tenantId, Guid id, string providerRef, string url, DateTimeOffset expiresAt, CancellationToken ct);
+
+    /// <summary>The audit trail of one deposit, oldest first.</summary>
+    Task<IReadOnlyList<PaymentEvent>> EventsAsync(string tenantId, Guid id, CancellationToken ct);
+
+    /// <summary>Payments waiting for an answer: unknown, or processing past the checkout's expiry (any tenant; the reconciler's work list).</summary>
+    Task<IReadOnlyList<Deposit>> AwaitingAnswerAsync(DateTimeOffset now, int limit, CancellationToken ct);
+
+    /// <summary>The project's SUCCEEDED deposit, or null (6b: a measured quote inherits it).</summary>
     Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct);
 
-    /// <summary>Paid deposits of one tenant, paid in [from, to) (1i commission report).</summary>
+    /// <summary>Succeeded deposits of one tenant, paid in [from, to) (1i commission report).</summary>
     Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }
 
-/// <summary>Deposits in Postgres (quotes schema v5).</summary>
+/// <summary>Deposits in Postgres (quotes schema v5, v9, v10).</summary>
 public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
 {
     private const string Columns = """
         id AS Id, tenant_id AS TenantId, project_id AS ProjectId, quote_id AS QuoteId, customer_id AS CustomerId,
         amount AS Amount, currency AS Currency, percent AS Percent, status AS Status, provider AS Provider,
-        created_at AS CreatedAt, paid_at AS PaidAt, paid_by AS PaidBy
+        created_at AS CreatedAt, paid_at AS PaidAt, paid_by AS PaidBy,
+        provider_ref AS ProviderRef, checkout_url AS CheckoutUrl, checkout_expires_at AS CheckoutExpiresAt
         """;
 
     public async Task InitializeAsync(CancellationToken ct)
@@ -57,7 +74,7 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
             CREATE TABLE IF NOT EXISTS quotes.schema_history(
                 version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
-            -- v5 (6a): deposits. One paid deposit per quote at most.
+            -- v5 (6a): deposits.
             CREATE TABLE IF NOT EXISTS quotes.deposits(
                 id uuid PRIMARY KEY,
                 tenant_id text NOT NULL,
@@ -67,25 +84,55 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
                 amount numeric(14,2) NOT NULL CHECK (amount > 0),
                 currency char(3) NOT NULL,
                 percent numeric(5,2) NOT NULL,
-                status text NOT NULL CHECK (status IN ('pending','paid')),
+                status text NOT NULL,
                 provider text NOT NULL,
                 created_at timestamptz NOT NULL,
                 paid_at timestamptz NULL,
                 paid_by text NULL);
             CREATE INDEX IF NOT EXISTS ix_deposits_quote ON quotes.deposits(tenant_id, quote_id, created_at DESC);
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_deposits_paid ON quotes.deposits(quote_id) WHERE status = 'paid';
             INSERT INTO quotes.schema_history(version) VALUES (5) ON CONFLICT DO NOTHING;
+
+            -- v9 (6d): the payment provider's checkout (Stripe session id and URL).
+            ALTER TABLE quotes.deposits ADD COLUMN IF NOT EXISTS provider_ref text NULL;
+            ALTER TABLE quotes.deposits ADD COLUMN IF NOT EXISTS checkout_url text NULL;
+            ALTER TABLE quotes.deposits ADD COLUMN IF NOT EXISTS checkout_expires_at timestamptz NULL;
+            INSERT INTO quotes.schema_history(version) VALUES (9) ON CONFLICT DO NOTHING;
+
+            -- v10 (6d): the payment state machine. pending/paid become processing/succeeded; every move is recorded.
+            ALTER TABLE quotes.deposits DROP CONSTRAINT IF EXISTS deposits_status_check;
+            ALTER TABLE quotes.deposits DROP CONSTRAINT IF EXISTS deposits_payment_state;
+            UPDATE quotes.deposits SET status = 'processing' WHERE status = 'pending';
+            UPDATE quotes.deposits SET status = 'succeeded' WHERE status = 'paid';
+            ALTER TABLE quotes.deposits ADD CONSTRAINT deposits_payment_state
+                CHECK (status IN ('created','processing','succeeded','failed','unknown'));
+            DROP INDEX IF EXISTS quotes.ux_deposits_paid;
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_deposits_succeeded ON quotes.deposits(quote_id) WHERE status = 'succeeded';
+            CREATE INDEX IF NOT EXISTS ix_deposits_awaiting ON quotes.deposits(checkout_expires_at) WHERE status IN ('processing','unknown');
+            CREATE TABLE IF NOT EXISTS quotes.payment_events(
+                id bigserial PRIMARY KEY,
+                tenant_id text NOT NULL,
+                deposit_id uuid NOT NULL,
+                from_state text NOT NULL,
+                to_state text NOT NULL,
+                at timestamptz NOT NULL,
+                source text NOT NULL,
+                detail text NULL);
+            CREATE INDEX IF NOT EXISTS ix_payment_events_deposit ON quotes.payment_events(tenant_id, deposit_id, id);
+            INSERT INTO quotes.schema_history(version) VALUES (10) ON CONFLICT DO NOTHING;
             """, cancellationToken: ct));
     }
 
     public async Task CreateAsync(Deposit d, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO quotes.deposits(id, tenant_id, project_id, quote_id, customer_id, amount, currency, percent, status, provider, created_at)
             VALUES (@Id, @TenantId, @ProjectId, @QuoteId, @CustomerId, @Amount, @Currency, @Percent, @Status, @Provider, @CreatedAt)
             """, new { d.Id, d.TenantId, d.ProjectId, d.QuoteId, d.CustomerId, d.Amount, d.Currency, d.Percent, d.Status, d.Provider, CreatedAt = d.CreatedAt.UtcDateTime },
-            cancellationToken: ct));
+            tx, cancellationToken: ct));
+        await AppendAsync(conn, tx, d.TenantId, d.Id, "", d.Status, d.CreatedAt, PaymentSources.Checkout, $"{d.Amount} {d.Currency} via {d.Provider}", ct);
+        await tx.CommitAsync(ct);
     }
 
     public async Task<Deposit?> FindAsync(string tenantId, string? customerId, Guid id, CancellationToken ct)
@@ -101,24 +148,60 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND quote_id = @quoteId ORDER BY (status = 'paid') DESC, created_at DESC LIMIT 1",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND quote_id = @quoteId ORDER BY (status = 'succeeded') DESC, created_at DESC LIMIT 1",
             new { tenantId, quoteId }, cancellationToken: ct));
         return row?.ToDomain();
     }
 
-    public async Task<bool> MarkPaidAsync(string tenantId, Guid id, DateTimeOffset at, string paidBy, CancellationToken ct)
+    public async Task<bool> TransitionAsync(string tenantId, Guid id, string from, string to, DateTimeOffset at, string source, string? detail, string? paidBy, CancellationToken ct)
+    {
+        if (!PaymentStates.CanMove(from, to)) throw new InvalidOperationException($"A payment can't move from {from} to {to}.");
+        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var moved = await conn.ExecuteAsync(new CommandDefinition("""
+            UPDATE quotes.deposits SET status = @to,
+                   paid_at = CASE WHEN @to = 'succeeded' THEN @at ELSE paid_at END,
+                   paid_by = CASE WHEN @to = 'succeeded' THEN @paidBy ELSE paid_by END
+            WHERE id = @id AND tenant_id = @tenantId AND status = @from
+            """, new { id, tenantId, from, to, at = at.UtcDateTime, paidBy }, tx, cancellationToken: ct)) == 1;
+        if (!moved) return false;
+        await AppendAsync(conn, tx, tenantId, id, from, to, at, source, detail, ct);
+        await tx.CommitAsync(ct);
+        return true;
+    }
+
+    public async Task SetCheckoutAsync(string tenantId, Guid id, string providerRef, string url, DateTimeOffset expiresAt, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(
-            "UPDATE quotes.deposits SET status = 'paid', paid_at = @at, paid_by = @paidBy WHERE id = @id AND tenant_id = @tenantId AND status = 'pending'",
-            new { id, tenantId, at = at.UtcDateTime, paidBy }, cancellationToken: ct)) == 1;
+        await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE quotes.deposits SET provider_ref = @providerRef, checkout_url = @url, checkout_expires_at = @expiresAt WHERE id = @id AND tenant_id = @tenantId AND status IN ('created','processing','unknown')",
+            new { id, tenantId, providerRef, url, expiresAt = expiresAt.UtcDateTime }, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<PaymentEvent>> EventsAsync(string tenantId, Guid id, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<EventRow>(new CommandDefinition("""
+            SELECT id AS Id, deposit_id AS DepositId, from_state AS FromState, to_state AS ToState, at AS At, source AS Source, detail AS Detail
+            FROM quotes.payment_events WHERE tenant_id = @tenantId AND deposit_id = @id ORDER BY id
+            """, new { tenantId, id }, cancellationToken: ct));
+        return [.. rows.Select(r => new PaymentEvent(r.Id, r.DepositId, r.FromState, r.ToState, new DateTimeOffset(DateTime.SpecifyKind(r.At, DateTimeKind.Utc)), r.Source, r.Detail))];
+    }
+
+    public async Task<IReadOnlyList<Deposit>> AwaitingAnswerAsync(DateTimeOffset now, int limit, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<Row>(new CommandDefinition(
+            $"SELECT {Columns} FROM quotes.deposits WHERE status = 'unknown' OR (status = 'processing' AND checkout_expires_at < @now) ORDER BY created_at LIMIT @limit",
+            new { now = now.UtcDateTime, limit }, cancellationToken: ct));
+        return [.. rows.Select(r => r.ToDomain())];
     }
 
     public async Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND status = 'paid' ORDER BY paid_at DESC LIMIT 1",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND status = 'succeeded' ORDER BY paid_at DESC LIMIT 1",
             new { tenantId, projectId }, cancellationToken: ct));
         return row?.ToDomain();
     }
@@ -127,9 +210,27 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND status = 'paid' AND paid_at >= @from AND paid_at < @to ORDER BY paid_at",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND status = 'succeeded' AND paid_at >= @from AND paid_at < @to ORDER BY paid_at",
             new { tenantId, from = from.UtcDateTime, to = to.UtcDateTime }, cancellationToken: ct));
         return [.. rows.Select(r => r.ToDomain())];
+    }
+
+    private static Task AppendAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string tenantId, Guid depositId, string from, string to, DateTimeOffset at,
+        string source, string? detail, CancellationToken ct) =>
+        conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO quotes.payment_events(tenant_id, deposit_id, from_state, to_state, at, source, detail)
+            VALUES (@tenantId, @depositId, @from, @to, @at, @source, @detail)
+            """, new { tenantId, depositId, from, to, at = at.UtcDateTime, source, detail = detail is { Length: > 500 } ? detail[..500] : detail }, tx, cancellationToken: ct));
+
+    private sealed class EventRow
+    {
+        public long Id { get; init; }
+        public Guid DepositId { get; init; }
+        public string FromState { get; init; } = "";
+        public string ToState { get; init; } = "";
+        public DateTime At { get; init; }
+        public string Source { get; init; } = "";
+        public string? Detail { get; init; }
     }
 
     private sealed class Row
@@ -147,10 +248,14 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
         public DateTime CreatedAt { get; init; }
         public DateTime? PaidAt { get; init; }
         public string? PaidBy { get; init; }
+        public string? ProviderRef { get; init; }
+        public string? CheckoutUrl { get; init; }
+        public DateTime? CheckoutExpiresAt { get; init; }
+
+        private static DateTimeOffset Utc(DateTime d) => new(DateTime.SpecifyKind(d, DateTimeKind.Utc));
 
         public Deposit ToDomain() => new(Id, TenantId, ProjectId, QuoteId, CustomerId, Amount, Currency.Trim(), Percent, Status, Provider,
-            new DateTimeOffset(DateTime.SpecifyKind(CreatedAt, DateTimeKind.Utc)),
-            PaidAt is DateTime p ? new DateTimeOffset(DateTime.SpecifyKind(p, DateTimeKind.Utc)) : null, PaidBy);
+            Utc(CreatedAt), PaidAt is DateTime p ? Utc(p) : null, PaidBy, ProviderRef, CheckoutUrl, CheckoutExpiresAt is DateTime e ? Utc(e) : null);
     }
 }
 
@@ -159,12 +264,17 @@ public sealed class InMemoryDepositStore : IDepositStore
 {
     private readonly Lock _gate = new();
     private readonly List<Deposit> _rows = [];
+    private readonly List<(string TenantId, PaymentEvent Event)> _events = [];
 
     public Task InitializeAsync(CancellationToken ct) => Task.CompletedTask;
 
     public Task CreateAsync(Deposit deposit, CancellationToken ct)
     {
-        lock (_gate) _rows.Add(deposit);
+        lock (_gate)
+        {
+            _rows.Add(deposit);
+            _events.Add((deposit.TenantId, new PaymentEvent(_events.Count + 1, deposit.Id, "", deposit.Status, deposit.CreatedAt, PaymentSources.Checkout, null)));
+        }
         return Task.CompletedTask;
     }
 
@@ -178,18 +288,44 @@ public sealed class InMemoryDepositStore : IDepositStore
         lock (_gate)
         {
             return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.QuoteId == quoteId)
-                .OrderByDescending(d => d.Paid).ThenByDescending(d => d.CreatedAt).FirstOrDefault());
+                .OrderByDescending(d => d.Paid).ThenByDescending(d => d.CreatedAt).ThenByDescending(d => _rows.IndexOf(d)).FirstOrDefault());
         }
     }
 
-    public Task<bool> MarkPaidAsync(string tenantId, Guid id, DateTimeOffset at, string paidBy, CancellationToken ct)
+    public Task<bool> TransitionAsync(string tenantId, Guid id, string from, string to, DateTimeOffset at, string source, string? detail, string? paidBy, CancellationToken ct)
+    {
+        if (!PaymentStates.CanMove(from, to)) throw new InvalidOperationException($"A payment can't move from {from} to {to}.");
+        lock (_gate)
+        {
+            var i = _rows.FindIndex(d => d.Id == id && d.TenantId == tenantId && d.Status == from);
+            if (i < 0) return Task.FromResult(false);
+            _rows[i] = to == PaymentStates.Succeeded ? _rows[i] with { Status = to, PaidAt = at, PaidBy = paidBy } : _rows[i] with { Status = to };
+            _events.Add((tenantId, new PaymentEvent(_events.Count + 1, id, from, to, at, source, detail)));
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task SetCheckoutAsync(string tenantId, Guid id, string providerRef, string url, DateTimeOffset expiresAt, CancellationToken ct)
     {
         lock (_gate)
         {
-            var i = _rows.FindIndex(d => d.Id == id && d.TenantId == tenantId && d.Status == DepositStatus.Pending);
-            if (i < 0) return Task.FromResult(false);
-            _rows[i] = _rows[i] with { Status = DepositStatus.Paid, PaidAt = at, PaidBy = paidBy };
-            return Task.FromResult(true);
+            var i = _rows.FindIndex(d => d.Id == id && d.TenantId == tenantId && !PaymentStates.IsFinal(d.Status));
+            if (i >= 0) _rows[i] = _rows[i] with { ProviderRef = providerRef, CheckoutUrl = url, CheckoutExpiresAt = expiresAt };
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<PaymentEvent>> EventsAsync(string tenantId, Guid id, CancellationToken ct)
+    {
+        lock (_gate) return Task.FromResult<IReadOnlyList<PaymentEvent>>([.. _events.Where(e => e.TenantId == tenantId && e.Event.DepositId == id).Select(e => e.Event)]);
+    }
+
+    public Task<IReadOnlyList<Deposit>> AwaitingAnswerAsync(DateTimeOffset now, int limit, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult<IReadOnlyList<Deposit>>([.. _rows
+                .Where(d => d.Status == PaymentStates.Unknown || (d.Status == PaymentStates.Processing && d.CheckoutExpiresAt < now)).Take(limit)]);
         }
     }
 

@@ -149,6 +149,23 @@ var quotes = builder.AddProject<Projects.BuilderPro_Quotes_Api>("quotes")
     .WaitFor(identity)
     .WaitFor(catalog);
 
+// 6d: Stripe payments (TEST mode). Opt-in: only when BOTH user secrets exist; otherwise the deposit uses
+// the simulated test-mode page. Webhooks reach your machine with the Stripe CLI:
+//   dotnet user-secrets set "Parameters:stripe-secret-key"     "sk_test_..." --project src/AppHost/BuilderPro.AppHost
+//   dotnet user-secrets set "Parameters:stripe-webhook-secret" "whsec_..."   --project src/AppHost/BuilderPro.AppHost
+//   stripe listen --forward-to http://localhost:<gateway port>/api/payments/stripe/webhook
+if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:stripe-secret-key"]) &&
+    !string.IsNullOrWhiteSpace(builder.Configuration["Parameters:stripe-webhook-secret"]))
+{
+    var stripeKey = builder.AddParameter("stripe-secret-key", secret: true);
+    var stripeWebhook = builder.AddParameter("stripe-webhook-secret", secret: true);
+    quotes
+        .WithEnvironment("Payments__Provider", "stripe")
+        .WithEnvironment("Payments__Stripe__SecretKey", stripeKey)
+        .WithEnvironment("Payments__Stripe__WebhookSecret", stripeWebhook)
+        .WithEnvironment("Payments__ReturnBaseUrl", "http://localhost:4200");
+}
+
 // ---------------------------------------------------------------------------
 // Assistant (3a): an agent whose tools call Catalog and Quotes AS THE CALLER. The model is
 // Microsoft Foundry; settings come from user secrets (never git):

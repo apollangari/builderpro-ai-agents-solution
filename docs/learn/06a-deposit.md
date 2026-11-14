@@ -14,3 +14,5 @@ quote --(Accept, customer)--> deposit due --(pay 5 %, customer)--> measure visit
 | Paid | The quote is **held** (`held: true`, always current), the project moves to `measure`, answers and re-quotes are refused (`project_locked`). |
 
 Tables: `quotes.deposits` (schema v5), at most one paid deposit per quote (unique index).
+
+6d replaced pending/paid with the payment state machine (created, processing, succeeded, failed, unknown) and added Stripe: see [06d](06d-stripe-payments.md).

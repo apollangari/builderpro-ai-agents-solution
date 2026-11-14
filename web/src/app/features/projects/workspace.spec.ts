@@ -101,7 +101,7 @@ describe('WorkspacePage (2n-f)', () => {
     el.querySelector<HTMLButtonElement>('[data-testid="pay-deposit"]')!.click();
     await settle();
     http.expectOne((r) => r.url === '/api/projects/p1/deposit' && r.method === 'POST')
-      .flush({ id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'pending', paidAt: null, checkoutUrl: '/pay/d1' });
+      .flush({ id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'processing', paidAt: null, checkoutUrl: '/pay/d1' });
     await settle();
     expect(navigate).toHaveBeenCalledWith('/pay/d1');
   });
@@ -109,7 +109,7 @@ describe('WorkspacePage (2n-f)', () => {
   it('a paid deposit shows the held price and the measure visit next', async () => {
     const el = await open(project({
       stage: 'measure', quote: { ...issued, status: 'accepted', held: true },
-      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'paid', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
+      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'succeeded', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
     }));
     expect(el.querySelector('[data-testid="held"]')?.textContent).toContain('$302.42');
     expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Visit');
@@ -149,7 +149,7 @@ describe('WorkspacePage (2n-f)', () => {
   it('a changed measured total waits for the customer to confirm it', async () => {
     const el = await open(project({
       stage: 'confirm', quote: { ...issued, number: 1043, total: 6500, held: false },
-      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'paid', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
+      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'succeeded', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
     }));
     expect(el.querySelector('[data-testid="confirm-measured"]')?.textContent).toContain('$6,500.00');
     expect(el.querySelector('[data-testid="accept-quote"]')).toBeNull();

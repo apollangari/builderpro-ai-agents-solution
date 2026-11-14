@@ -6,6 +6,7 @@ import { describeError } from '../../core/api/describe-error';
 import { GuidedStepsComponent } from '../quote/guided-steps.component';
 import { GROUP_TITLES, GuidedLine, Project, STAGES, VisitInfo, layoutSketch } from '../quote/guided';
 import { VisitBookingComponent } from './visit-booking.component';
+import { leaveFor } from './pay.page';
 import { ConciergePanelComponent } from './concierge-panel.component';
 import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tracker.component';
 import { StoreFeatures } from '../../core/tenant/store-features';
@@ -131,6 +132,11 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                   }
                 } @else if (q.status === 'accepted' && q.current && !q.expired) {
                   <p data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. Pay a {{ depositPercent() }}% deposit to hold this price; until then it can change.</p>
+                  @if (p.deposit?.status === 'unknown') {
+                    <p class="muted small" data-testid="deposit-checking">We're confirming your last payment with the payment provider.</p>
+                  } @else if (p.deposit?.status === 'failed') {
+                    <p class="warning" data-testid="deposit-failed"><span>Your last payment didn't go through; nothing was charged. You can try again.</span></p>
+                  }
                   @if (!features.isCustomer()) {
                     <p class="muted small" data-testid="customer-pays">The customer pays the deposit in their own account.</p>
                   } @else {
@@ -333,7 +339,9 @@ export class WorkspacePage {
       if (!this.actionResult.hasValue()) return;
       const result = this.actionResult.value() as unknown as Project & { checkoutUrl?: string };
       if (this.action()?.kind === 'deposit' && result.checkoutUrl) {
-        void this.router.navigateByUrl(result.checkoutUrl);
+        // Stripe Checkout is another site; our test-mode page is a route here.
+        if (/^https?:/.test(result.checkoutUrl)) leaveFor.go(result.checkoutUrl);
+        else void this.router.navigateByUrl(result.checkoutUrl);
       } else {
         this.project.set(result);
       }

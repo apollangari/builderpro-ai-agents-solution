@@ -20,6 +20,22 @@ builder.Services.AddSingleton<IQuoteStore, PostgresQuoteStore>();
 builder.Services.AddSingleton<IProjectStore, PostgresProjectStore>();   // 2n-f
 builder.Services.AddSingleton<IDepositStore, PostgresDepositStore>();   // 6a
 builder.Services.AddSingleton<IVisitStore, PostgresVisitStore>();       // 6b
+
+// 6d: the payment provider. "simulated" (default) = our test-mode page; "stripe" = Stripe Checkout + signed webhook.
+if (DepositEndpoints.Provider(builder.Configuration) == "stripe")
+{
+    var stripe = builder.Configuration.GetSection("Payments:Stripe").Get<StripeOptions>() ?? new StripeOptions();
+    stripe.Validate(builder.Environment.IsProduction());   // test keys only outside Production
+    builder.Services.AddSingleton(stripe);
+    builder.Services.AddHttpClient<IPaymentProvider, StripePayments>();
+}
+else
+{
+    builder.Services.AddSingleton<IPaymentProvider, SimulatedPayments>();
+}
+builder.Services.AddScoped<PaymentFlow>();
+builder.Services.AddSingleton<PaymentReconciler>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PaymentReconciler>());   // 6d: reconciliation
 builder.Services.AddSingleton<IInstallStore, PostgresInstallStore>();   // 6c
 builder.Services.AddBuilderProAuth(builder.Configuration);
 

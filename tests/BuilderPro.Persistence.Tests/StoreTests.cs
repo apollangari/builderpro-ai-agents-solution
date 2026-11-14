@@ -311,17 +311,24 @@ public sealed class DepositStoreTests(PostgresFixture pg)
         await store.InitializeAsync(default);
         await store.InitializeAsync(default);
         var quoteId = Guid.NewGuid();
-        var d = new Deposit(Guid.NewGuid(), "t-acme", Guid.NewGuid(), quoteId, "c-alice", 362.29m, "USD", 5m, DepositStatus.Pending, "simulated", T0, null);
+        var d = new Deposit(Guid.NewGuid(), "t-acme", Guid.NewGuid(), quoteId, "c-alice", 362.29m, "USD", 5m, PaymentStates.Created, "stripe", T0, null);
         await store.CreateAsync(d, default);
 
         Assert.Null(await store.FindAsync("t-globex", null, d.Id, default));
         Assert.Null(await store.FindAsync("t-acme", "c-abe", d.Id, default));
-        Assert.False(await store.MarkPaidAsync("t-globex", d.Id, T0, "u-1", default));
-        Assert.True(await store.MarkPaidAsync("t-acme", d.Id, T0.AddMinutes(5), "u-1", default));
-        Assert.False(await store.MarkPaidAsync("t-acme", d.Id, T0.AddMinutes(6), "u-1", default));   // only once
+        Assert.True(await store.TransitionAsync("t-acme", d.Id, "created", "processing", T0, "checkout", null, null, default));
+        await store.SetCheckoutAsync("t-acme", d.Id, "cs_test_1", "https://checkout.stripe.test/1", T0.AddMinutes(30), default);
+        Assert.Single(await store.AwaitingAnswerAsync(T0.AddHours(1), 10, default));   // processing past its checkout's expiry
+        Assert.Empty(await store.AwaitingAnswerAsync(T0, 10, default));
+        Assert.False(await store.TransitionAsync("t-globex", d.Id, "processing", "succeeded", T0, "webhook", null, "pi_1", default));
+        Assert.True(await store.TransitionAsync("t-acme", d.Id, "processing", "succeeded", T0.AddMinutes(5), "webhook", "pi_1", "stripe:pi_1", default));
+        Assert.False(await store.TransitionAsync("t-acme", d.Id, "processing", "succeeded", T0.AddMinutes(6), "webhook", null, "x", default));   // only once
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.TransitionAsync("t-acme", d.Id, "succeeded", "failed", T0, "lookup", null, null, default));
 
         var found = (await store.ForQuoteAsync("t-acme", quoteId, default))!;
-        Assert.Equal(("paid", 362.29m, T0.AddMinutes(5)), (found.Status, found.Amount, found.PaidAt));
+        Assert.Equal(("succeeded", 362.29m, T0.AddMinutes(5), "cs_test_1"), (found.Status, found.Amount, found.PaidAt, found.ProviderRef));
+        Assert.Equal(new[] { "created", "processing", "succeeded" }, (await store.EventsAsync("t-acme", d.Id, default)).Select(e => e.To));
+        Assert.Empty(await store.EventsAsync("t-globex", d.Id, default));
         Assert.Equal(d.Id, (await store.ForProjectAsync("t-acme", d.ProjectId, default))!.Id);
         Assert.Equal(d.Id, Assert.Single(await store.ListPaidAsync("t-acme", T0, T0.AddDays(1), default)).Id);
         Assert.Empty(await store.ListPaidAsync("t-globex", T0, T0.AddDays(1), default));

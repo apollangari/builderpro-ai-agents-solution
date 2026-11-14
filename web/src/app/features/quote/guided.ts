@@ -222,9 +222,12 @@ export interface DepositInfo {
   amount: number;
   currency: string;
   percent: number;
-  status: 'pending' | 'paid';
+  /** The payment state machine (6d): only the provider's answer makes it succeeded. */
+  status: 'created' | 'processing' | 'succeeded' | 'failed' | 'unknown';
   paidAt: string | null;
   checkoutUrl: string;
+  /** simulated (our test page) or stripe. */
+  provider?: string;
 }
 
 export interface ProjectAnswers {

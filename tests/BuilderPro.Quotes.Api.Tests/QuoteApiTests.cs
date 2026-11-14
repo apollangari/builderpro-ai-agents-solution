@@ -145,6 +145,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public FakeContactChannels Channels { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCustomerDirectory Customers { get; }
+    /// <summary>6d: when set (with Payments:Provider = stripe), Stripe's API is this fake.</summary>
+    public HttpMessageHandler? StripeHandler { get; set; }
     private readonly Dictionary<string, string> _settings = [];
 
     /// <summary>Extra configuration; call before the first request (the host is built then).</summary>
@@ -180,6 +182,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IContactChannels>(Channels);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
+            if (StripeHandler is not null)
+                s.AddHttpClient<IPaymentProvider, StripePayments>().ConfigurePrimaryHttpMessageHandler(() => StripeHandler);
             s.RemoveAll<ICustomerDirectory>();
             s.AddSingleton<ICustomerDirectory>(Customers);
             s.RemoveAll<ICatalogPrices>();
@@ -853,7 +857,7 @@ public sealed class DepositApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
         Assert.Equal(HttpStatusCode.Created, start.StatusCode);
         var deposit = (await start.Content.ReadFromJsonAsync<DepositDto>())!;
         Assert.Equal(Math.Round(p.Quote!.Total * 0.05m, 2, MidpointRounding.AwayFromZero), deposit.Amount);
-        Assert.Equal(("pending", 5m, $"/pay/{deposit.Id}"), (deposit.Status, deposit.Percent, deposit.CheckoutUrl));
+        Assert.Equal(("processing", 5m, $"/pay/{deposit.Id}"), (deposit.Status, deposit.Percent, deposit.CheckoutUrl));
 
         var again = (await (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
         Assert.Equal(deposit.Id, again.Id);   // one pending deposit per quote
@@ -862,7 +866,7 @@ public sealed class DepositApiTests(QuotesFactory f) : IClassFixture<QuotesFacto
         Assert.Equal(HttpStatusCode.OK, paid.StatusCode);
 
         var after = (await _f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
-        Assert.Equal(("measure", true, "paid"), (after.Stage, after.Quote!.Held, after.Deposit!.Status));
+        Assert.Equal(("measure", true, "succeeded"), (after.Stage, after.Quote!.Held, after.Deposit!.Status));
         Assert.Equal(QuotesFactory.Now, after.Deposit.PaidAt);
         Assert.Equal(HttpStatusCode.Conflict, (await _f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await _f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null)).StatusCode);
@@ -1217,5 +1221,246 @@ public sealed class InstallApiTests
         Assert.Equal(HttpStatusCode.BadRequest, (await Step(f, p.Id, "scheduled", QuotesFactory.Now.AddDays(-1))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await Step(f, p.Id, "painting")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await Step(f, p.Id, "fabricating")).StatusCode);   // schedule first
+    }
+}
+
+
+/// <summary>6d: the payment state machine with the simulated provider (decline, retry, audit trail).</summary>
+public sealed class PaymentStateTests
+{
+    private static readonly object Answers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    internal static async Task<ProjectDto> Accepted(QuotesFactory f)
+    {
+        var p = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", Answers);
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        return (await (await f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null)).Content.ReadFromJsonAsync<ProjectDto>())!;
+    }
+
+    [Fact]
+    public async Task A_declined_payment_fails_and_starting_again_is_a_new_attempt_every_move_recorded()
+    {
+        using var f = new QuotesFactory();
+        var p = await Accepted(f);
+        var first = (await (await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal("processing", first.Status);
+
+        var declined = (await (await f.As("alice").PostAsJsonAsync($"/api/deposits/{first.Id}/pay", new { outcome = "decline" })).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal("failed", declined.Status);
+        Assert.Equal(HttpStatusCode.Conflict, (await f.As("alice").PostAsync($"/api/deposits/{first.Id}/pay", null)).StatusCode);   // final
+
+        var second = (await (await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal("succeeded", (await (await f.As("alice").PostAsync($"/api/deposits/{second.Id}/pay", null)).Content.ReadFromJsonAsync<DepositDto>())!.Status);
+
+        var trail = (await f.As("alice").GetFromJsonAsync<PaymentEventDto[]>($"/api/deposits/{first.Id}/events"))!;
+        Assert.Equal(new[] { "created", "processing", "failed" }, trail.Select(e => e.To));
+        Assert.Equal("simulated", trail[^1].Source);
+        var ok = (await f.As("alice").GetFromJsonAsync<PaymentEventDto[]>($"/api/deposits/{second.Id}/events"))!;
+        Assert.Equal(new[] { "created", "processing", "succeeded" }, ok.Select(e => e.To));
+        Assert.Equal(HttpStatusCode.NotFound, (await f.As("abe").GetAsync($"/api/deposits/{first.Id}/events")).StatusCode);
+    }
+}
+
+/// <summary>Stands in for Stripe's API: records requests, answers as told (session, refusal, timeout, lookup status).</summary>
+public sealed class FakeStripe : HttpMessageHandler
+{
+    public List<(HttpMethod Method, string Path, string Body, string? IdempotencyKey)> Requests { get; } = [];
+    public string StartMode { get; set; } = "ok";            // ok | refuse | timeout
+    public string LookupStatus { get; set; } = "open";       // open | paid | expired
+    public long? LookupAmount { get; set; }
+    private int _sessions;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+        Requests.Add((request.Method, request.RequestUri!.AbsolutePath, body, request.Headers.TryGetValues("Idempotency-Key", out var k) ? k.First() : null));
+        if (request.Method == HttpMethod.Post)
+        {
+            if (StartMode == "timeout") throw new TaskCanceledException("timed out");
+            if (StartMode == "refuse") return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"message\":\"no\"}}") };
+            var id = $"cs_test_{++_sessions}";
+            return Json(new { id, url = $"https://checkout.stripe.test/{id}", expires_at = QuotesFactory.Now.AddHours(24).ToUnixTimeSeconds() });
+        }
+        var (status, payment) = LookupStatus switch { "paid" => ("complete", "paid"), "expired" => ("expired", "unpaid"), _ => ("open", "unpaid") };
+        return Json(new { id = request.RequestUri.Segments[^1], status, payment_status = payment, amount_total = LookupAmount, currency = "usd", payment_intent = "pi_lookup" });
+    }
+
+    private static HttpResponseMessage Json(object o) => new(HttpStatusCode.OK) { Content = JsonContent.Create(o) };
+}
+
+/// <summary>6d: Stripe Checkout + signed webhook + reconciliation, against a fake Stripe.</summary>
+public sealed class StripePaymentTests
+{
+    private const string Secret = "whsec_test_secret";
+
+    private static (QuotesFactory F, FakeStripe Stripe) Stripe()
+    {
+        var f = new QuotesFactory();
+        var fake = new FakeStripe();
+        f.Configure("Payments:Provider", "stripe");
+        f.Configure("Payments:Stripe:SecretKey", "sk_test_123");
+        f.Configure("Payments:Stripe:WebhookSecret", Secret);
+        f.Configure("Payments:ReturnBaseUrl", "http://app.test");
+        f.Configure("Payments:ReconcileSeconds", "3600");
+        f.StripeHandler = fake;
+        return (f, fake);
+    }
+
+    private static async Task<HttpResponseMessage> Webhook(QuotesFactory f, object evt, string? secret = Secret, long? at = null)
+    {
+        var body = JsonSerializer.Serialize(evt);
+        var t = at ?? QuotesFactory.Now.ToUnixTimeSeconds();
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/payments/stripe/webhook") { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+        if (secret is not null) request.Headers.Add("Stripe-Signature", $"t={t},v1={StripeSignature.Sign(t, body, secret)}");
+        return await f.CreateClient().SendAsync(request);
+    }
+
+    private static object Completed(DepositDto d, long amount, string type = "checkout.session.completed", string paymentStatus = "paid") => new
+    {
+        id = "evt_1", type,
+        data = new { @object = new { id = "cs_test_1", payment_status = paymentStatus, amount_total = amount, currency = "usd", payment_intent = "pi_1",
+            metadata = new Dictionary<string, string> { ["deposit_id"] = d.Id.ToString(), ["tenant_id"] = "t-acme" } } },
+    };
+
+    private static async Task<DepositDto> Start(QuotesFactory f, ProjectDto p, HttpStatusCode expected = HttpStatusCode.Created)
+    {
+        var r = await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Equal(expected, r.StatusCode);
+        return (await r.Content.ReadFromJsonAsync<DepositDto>())!;
+    }
+
+    [Fact]
+    public async Task Checkout_opens_at_Stripe_and_only_a_signed_webhook_marks_it_paid_once()
+    {
+        var (f, stripe) = Stripe();
+        using var _ = f;
+        var p = await PaymentStateTests.Accepted(f);
+        var d = await Start(f, p);
+        Assert.Equal(("processing", "stripe", "https://checkout.stripe.test/cs_test_1"), (d.Status, d.Provider, d.CheckoutUrl));
+        var sent = Assert.Single(stripe.Requests);
+        Assert.Contains($"line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D={StripeForm.MinorUnits(d.Amount)}", sent.Body);
+        Assert.Contains("success_url=http%3A%2F%2Fapp.test%2Fpay%2F", sent.Body);
+        Assert.Equal($"deposit-{d.Id:N}-0", sent.IdempotencyKey);
+        Assert.Equal(d.Id, (await Start(f, p, HttpStatusCode.OK)).Id);   // same open checkout, no second session
+        Assert.Single(stripe.Requests);
+
+        // The browser can't pay a Stripe deposit; unsigned, wrongly signed or stale webhooks change nothing.
+        Assert.Equal(HttpStatusCode.NotFound, (await f.As("alice").PostAsync($"/api/deposits/{d.Id}/pay", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Webhook(f, Completed(d, StripeForm.MinorUnits(d.Amount)), secret: null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Webhook(f, Completed(d, StripeForm.MinorUnits(d.Amount)), secret: "whsec_wrong")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Webhook(f, Completed(d, StripeForm.MinorUnits(d.Amount)), at: QuotesFactory.Now.AddHours(-1).ToUnixTimeSeconds())).StatusCode);
+        // A different amount is never marked paid.
+        Assert.Equal(HttpStatusCode.OK, (await Webhook(f, Completed(d, 100))).StatusCode);
+        Assert.Equal("processing", (await f.As("alice").GetFromJsonAsync<DepositDto>($"/api/deposits/{d.Id}"))!.Status);
+
+        Assert.Equal(HttpStatusCode.OK, (await Webhook(f, Completed(d, StripeForm.MinorUnits(d.Amount)))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Webhook(f, Completed(d, StripeForm.MinorUnits(d.Amount)))).StatusCode);   // replay
+        var after = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+        Assert.Equal(("measure", "succeeded", true), (after.Stage, after.Deposit!.Status, after.Quote!.Held));
+        var trail = (await f.As("alice").GetFromJsonAsync<PaymentEventDto[]>($"/api/deposits/{d.Id}/events"))!;
+        Assert.Equal(new[] { "created", "processing", "succeeded" }, trail.Select(e => e.To));
+        Assert.Equal(("webhook", "pi_1"), (trail[^1].Source, trail[^1].Detail));
+    }
+
+    [Fact]
+    public async Task A_timeout_is_unknown_and_reconciliation_finds_the_payment()
+    {
+        var (f, stripe) = Stripe();
+        using var _ = f;
+        var p = await PaymentStateTests.Accepted(f);
+        stripe.StartMode = "timeout";
+        var d = await Start(f, p, HttpStatusCode.Accepted);
+        Assert.Equal("unknown", d.Status);
+        Assert.Equal(d.Id, (await Start(f, p, HttpStatusCode.OK)).Id);   // still unknown after asking again: no second deposit
+
+        // The provider did create the session: the retry with the SAME idempotency key finds it, then the lookup says paid.
+        stripe.StartMode = "ok";
+        stripe.LookupStatus = "paid";
+        stripe.LookupAmount = StripeForm.MinorUnits(d.Amount);
+        var reconciler = f.Services.GetRequiredService<PaymentReconciler>();
+        await reconciler.RunOnceAsync(default);   // unknown -> processing (session found)
+        Assert.Equal("processing", (await f.As("alice").GetFromJsonAsync<DepositDto>($"/api/deposits/{d.Id}"))!.Status);
+        var refreshed = (await f.As("alice").GetFromJsonAsync<DepositDto>($"/api/deposits/{d.Id}?refresh=true"))!;   // back from Stripe: ask now
+        Assert.Equal("succeeded", refreshed.Status);
+        Assert.All(stripe.Requests.Where(r => r.Method == HttpMethod.Post), r => Assert.Equal($"deposit-{d.Id:N}-0", r.IdempotencyKey));
+        var trail = (await f.As("alice").GetFromJsonAsync<PaymentEventDto[]>($"/api/deposits/{d.Id}/events"))!;
+        Assert.Equal(new[] { "created", "processing", "unknown", "processing", "succeeded" }, trail.Select(e => e.To));
+        Assert.Equal("lookup", trail[^1].Source);
+    }
+
+    [Fact]
+    public async Task A_refusal_fails_and_an_expired_checkout_fails_on_reconciliation()
+    {
+        var (f, stripe) = Stripe();
+        using var _ = f;
+        var p = await PaymentStateTests.Accepted(f);
+        stripe.StartMode = "refuse";
+        var r = await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null);
+        Assert.Equal(HttpStatusCode.BadGateway, r.StatusCode);
+        Assert.Contains("payment_refused", await r.Content.ReadAsStringAsync());
+
+        stripe.StartMode = "ok";
+        var d = await Start(f, p);   // a new attempt
+        stripe.LookupStatus = "expired";
+        f.Clock.Advance(TimeSpan.FromHours(25));   // past the checkout's expiry: the reconciler asks
+        Assert.Equal(1, await f.Services.GetRequiredService<PaymentReconciler>().RunOnceAsync(default));
+        Assert.Equal("failed", (await f.As("alice").GetFromJsonAsync<DepositDto>($"/api/deposits/{d.Id}"))!.Status);
+    }
+}
+
+/// <summary>6d: the pure pieces: state-machine rules, signatures, amounts, Stripe outcomes.</summary>
+public sealed class PaymentRulesTests
+{
+    [Theory]
+    [InlineData("created", "processing", true)]
+    [InlineData("processing", "succeeded", true)]
+    [InlineData("processing", "unknown", true)]
+    [InlineData("unknown", "succeeded", true)]
+    [InlineData("unknown", "failed", true)]
+    [InlineData("created", "succeeded", false)]   // only the provider's answer pays, after a checkout
+    [InlineData("succeeded", "failed", false)]    // final
+    [InlineData("failed", "processing", false)]   // final: a new attempt is a new deposit
+    public void The_state_machine_allows_only_the_drawn_moves(string from, string to, bool allowed) =>
+        Assert.Equal(allowed, BuilderPro.Quotes.Domain.PaymentStates.CanMove(from, to));
+
+    [Fact]
+    public void Signatures_must_match_the_body_secret_and_be_recent()
+    {
+        var now = QuotesFactory.Now;
+        var t = now.ToUnixTimeSeconds();
+        const string body = "{\"id\":\"evt_1\"}";
+        var good = $"t={t},v1={StripeSignature.Sign(t, body, "whsec_a")}";
+        Assert.True(StripeSignature.IsValid(good, body, "whsec_a", now));
+        Assert.True(StripeSignature.IsValid($"t={t},v1=deadbeef,v1={StripeSignature.Sign(t, body, "whsec_a")}", body, "whsec_a", now));   // rolled secrets
+        Assert.False(StripeSignature.IsValid(good, body + " ", "whsec_a", now));
+        Assert.False(StripeSignature.IsValid(good, body, "whsec_b", now));
+        Assert.False(StripeSignature.IsValid(good, body, "whsec_a", now.AddMinutes(6)));
+        Assert.False(StripeSignature.IsValid("garbage", body, "whsec_a", now));
+        Assert.False(StripeSignature.IsValid(null, body, "whsec_a", now));
+    }
+
+    [Fact]
+    public void Amounts_go_to_Stripe_in_cents_and_sessions_map_to_outcomes()
+    {
+        Assert.Equal(14148L, StripeForm.MinorUnits(141.48m));
+        Assert.Equal(1L, StripeForm.MinorUnits(0.005m));
+        Assert.Equal(ProviderOutcome.Paid, StripeOutcome.Of(new StripeSession("cs", "paid", "complete", 100, "usd", "pi", null)).Outcome);
+        Assert.Equal(ProviderOutcome.Failed, StripeOutcome.Of(new StripeSession("cs", "unpaid", "expired", 100, "usd", null, null)).Outcome);
+        Assert.Equal(ProviderOutcome.Open, StripeOutcome.Of(new StripeSession("cs", "unpaid", "complete", 100, "usd", null, null)).Outcome);   // bank debit pending
+    }
+
+    [Fact]
+    public void Live_keys_are_refused_outside_production()
+    {
+        Assert.Throws<InvalidOperationException>(() => new StripeOptions { SecretKey = "sk_live_x", WebhookSecret = "whsec_x" }.Validate(production: false));
+        Assert.Throws<InvalidOperationException>(() => new StripeOptions { SecretKey = "sk_test_x" }.Validate(production: false));
+        new StripeOptions { SecretKey = "sk_test_x", WebhookSecret = "whsec_x" }.Validate(production: false);
     }
 }
