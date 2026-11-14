@@ -37,6 +37,13 @@ builder.Services.AddScoped<PaymentFlow>();
 builder.Services.AddSingleton<PaymentReconciler>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PaymentReconciler>());   // 6d: reconciliation
 builder.Services.AddSingleton<IInstallStore, PostgresInstallStore>();   // 6c
+// 4b: automated scheduling calls. Telephony is simulated until a provider (ACS / Twilio) is configured.
+builder.Services.AddSingleton<ICallStore, PostgresCallStore>();
+builder.Services.AddSingleton<ITelephony, SimulatedTelephony>();
+builder.Services.AddSingleton<CallDispatcher>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<CallDispatcher>());
+builder.Services.AddHttpClient<IProfileReader, IdentityProfileReader>(c =>
+    c.BaseAddress = new Uri(builder.Configuration["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
 // Tenant, customer and scopes: asked from the Identity service (LEARN 2a).
@@ -64,6 +71,7 @@ await app.Services.GetRequiredService<IProjectStore>().InitializeAsync(Cancellat
 await app.Services.GetRequiredService<IDepositStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IVisitStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IInstallStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<ICallStore>().InitializeAsync(CancellationToken.None);
 
 app.UseExceptionHandler();
 app.UseAuthentication();
@@ -75,6 +83,7 @@ app.MapGuidedQuoteEndpoints();   // 2n-b..e
 app.MapProjectEndpoints();       // 2n-f
 app.MapDepositEndpoints();       // 6a
 app.MapSalesEndpoints();         // 1i
+app.MapCallEventEndpoints();     // 4b: telephony provider callback (signed)
 
 app.Run();
 

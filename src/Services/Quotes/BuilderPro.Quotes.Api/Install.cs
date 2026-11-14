@@ -34,6 +34,8 @@ public interface IInstallStore
 {
     Task InitializeAsync(CancellationToken ct);
     Task AddAsync(InstallEvent e, IReadOnlyList<Notification> notifications, CancellationToken ct);
+    /// <summary>4b: messages that aren't an install step (e.g. a visit confirm link after a scheduling call).</summary>
+    Task AddNotificationsAsync(IReadOnlyList<Notification> notifications, CancellationToken ct);
     Task<IReadOnlyList<InstallEvent>> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct);
     Task<IReadOnlyList<Notification>> NotificationsAsync(string tenantId, Guid projectId, CancellationToken ct);
 }
@@ -90,6 +92,18 @@ public sealed class PostgresInstallStore(NpgsqlDataSource db) : IInstallStore
                 """, new { n.Id, n.TenantId, n.ProjectId, n.CustomerId, n.Channel, n.Message, CreatedAt = n.CreatedAt.UtcDateTime }, tx, cancellationToken: ct));
         }
         await tx.CommitAsync(ct);
+    }
+
+    public async Task AddNotificationsAsync(IReadOnlyList<Notification> notifications, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        foreach (var n in notifications)
+        {
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO quotes.notifications(id, tenant_id, project_id, customer_id, channel, message, created_at)
+                VALUES (@Id, @TenantId, @ProjectId, @CustomerId, @Channel, @Message, @CreatedAt)
+                """, new { n.Id, n.TenantId, n.ProjectId, n.CustomerId, n.Channel, n.Message, CreatedAt = n.CreatedAt.UtcDateTime }, cancellationToken: ct));
+        }
     }
 
     public async Task<IReadOnlyList<InstallEvent>> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
@@ -156,6 +170,12 @@ public sealed class InMemoryInstallStore : IInstallStore
             _events.Add(e);
             _notifications.AddRange(notifications);
         }
+        return Task.CompletedTask;
+    }
+
+    public Task AddNotificationsAsync(IReadOnlyList<Notification> notifications, CancellationToken ct)
+    {
+        lock (_gate) _notifications.AddRange(notifications);
         return Task.CompletedTask;
     }
 

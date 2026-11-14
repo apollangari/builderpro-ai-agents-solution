@@ -46,6 +46,7 @@ public static class ProjectEndpoints
         api.MapPost("/{id:guid}/accept", AcceptAsync).WithSummary("The customer accepts the issued quote; the 5 % deposit is then due. Accepting alone doesn't hold the price (6a). Never an agent.");
         api.MapVisitEndpoints();   // 6b: measure visit, measured quote, confirm
         api.MapInstallEndpoints(); // 6c: installation steps and order updates
+        api.MapCallEndpoints();    // 4b: automated scheduling calls (consent, status)
         api.MapPost("/{id:guid}/deposit", DepositEndpoints.StartAsync).WithSummary("Start the 5 % deposit for the accepted quote: returns the amount and where to pay. Customer only, never an agent.");
         return app;
     }
