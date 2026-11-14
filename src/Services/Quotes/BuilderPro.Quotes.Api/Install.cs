@@ -188,6 +188,8 @@ public sealed class InMemoryInstallStore : IInstallStore
     {
         lock (_gate) return Task.FromResult<IReadOnlyList<Notification>>([.. _notifications.Where(n => n.TenantId == tenantId && n.ProjectId == projectId)]);
     }
+
+    public IReadOnlyList<Notification> AllNotifications { get { lock (_gate) return [.. _notifications]; } }
 }
 
 /// <summary>Which channels the customer consented to for order updates, asked from Identity with the staff member's token.</summary>

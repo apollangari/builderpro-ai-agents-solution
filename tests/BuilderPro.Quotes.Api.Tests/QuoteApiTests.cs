@@ -91,10 +91,21 @@ public sealed class FakeProfiles(FakeTenantLookup tenants) : IProfileReader
     public async Task<CustomerProfile?> MineAsync(HttpContext http, CancellationToken ct) =>
         (await tenants.ResolveAsync(http, ct)).CustomerId switch
         {
-            "c-alice" => new CustomerProfile("+1 555 010 0001", "business", "text"),
-            "c-abe" => new CustomerProfile(null, "business", "none"),
+            "c-alice" => new CustomerProfile("+1 555 010 0001", "business", "text", "alice@acme.test"),
+            "c-abe" => new CustomerProfile(null, "business", "none", null),
             _ => new CustomerProfile("+1 555 010 0009", "anytime", "none"),
         };
+}
+
+/// <summary>Records emails instead of sending them.</summary>
+public sealed class FakeEmail : IEmailSender
+{
+    public List<(string To, string Subject, string Body)> Sent { get; } = [];
+    public Task SendAsync(string to, string subject, string body, CancellationToken ct)
+    {
+        Sent.Add((to, subject, body));
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Stands in for the Catalog: per-tenant price lists, or "down".</summary>
@@ -156,6 +167,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public InMemoryVisitStore Visits { get; } = new();
     public InMemoryInstallStore Installs { get; } = new();
     public InMemoryCallStore Calls { get; } = new();
+    public InMemoryContactStore Contacts { get; }
+    public FakeEmail Email { get; } = new();
     public FakeContactChannels Channels { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCustomerDirectory Customers { get; }
@@ -172,6 +185,7 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     {
         Catalog = new FakeCatalog(Tenants);
         Customers = new FakeCustomerDirectory(Tenants);
+        Contacts = new InMemoryContactStore(Installs);
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -192,6 +206,12 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IDepositStore>(Deposits);
             s.RemoveAll<IVisitStore>();
             s.AddSingleton<IVisitStore>(Visits);
+            s.RemoveAll<IContactStore>();
+            s.AddSingleton<IContactStore>(Contacts);
+            s.RemoveAll<INotificationOutbox>();
+            s.AddSingleton<INotificationOutbox>(Contacts);
+            s.RemoveAll<IEmailSender>();
+            s.AddSingleton<IEmailSender>(Email);
             s.RemoveAll<ICallStore>();
             s.AddSingleton<ICallStore>(Calls);
             s.RemoveAll<IProfileReader>();
@@ -1651,5 +1671,54 @@ public sealed class StaffQueueTests
 
         Assert.Equal(HttpStatusCode.Forbidden, (await f.As("alice").GetAsync("/api/staff/queue")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").GetAsync("/api/staff/queue")).StatusCode);   // staff without scheduling.write
+    }
+}
+
+
+/// <summary>Final gaps: the outbox is delivered: email any time, texts only inside contact hours.</summary>
+public sealed class NotificationSenderTests
+{
+    private static readonly object Answers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<Guid> Installing(QuotesFactory f, string sub)
+    {
+        var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", Answers);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null);
+        var d = (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        await f.As(sub).PostAsync($"/api/deposits/{d.Id}/pay", null);
+        await f.As(sub).PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero) });
+        await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } } });
+        return p.Id;
+    }
+
+    [Fact]
+    public async Task Email_goes_at_once_a_text_waits_for_contact_hours_and_missing_addresses_are_recorded()
+    {
+        using var f = new QuotesFactory();
+        var alice = await Installing(f, "alice");
+        var abe = await Installing(f, "abe");
+        await f.As("mia").PostAsJsonAsync($"/api/projects/{alice}/install", new { step = "scheduled", scheduledFor = QuotesFactory.Now.AddDays(10) });   // email + sms
+        await f.As("mia").PostAsJsonAsync($"/api/projects/{abe}/install", new { step = "scheduled", scheduledFor = QuotesFactory.Now.AddDays(10) });     // email only
+
+        var sender = f.Services.GetRequiredService<NotificationSender>();
+        var sms = (SimulatedSmsSender)f.Services.GetRequiredService<ISmsSender>();
+        Assert.Equal(1, await sender.RunOnceAsync(default));   // Fri 3:00 Central: alice's email only
+        var mail = Assert.Single(f.Email.Sent);
+        Assert.Equal("alice@acme.test", mail.To);
+        Assert.Contains("installation scheduled for", mail.Body);
+        Assert.Empty(sms.Sent);
+        Assert.Contains(f.Contacts.Marked.Values, m => m.Result.StartsWith("skipped: no address"));   // abe has no email on file
+
+        f.Clock.Advance(TimeSpan.FromHours(6));   // Fri 9:00 Central: inside business hours
+        Assert.Equal(1, await sender.RunOnceAsync(default));
+        Assert.Equal("+1 555 010 0001", Assert.Single(sms.Sent).To);
+        Assert.Equal(0, await sender.RunOnceAsync(default));   // nothing is sent twice
     }
 }

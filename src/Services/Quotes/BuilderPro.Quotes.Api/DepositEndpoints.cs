@@ -81,6 +81,7 @@ public static class DepositEndpoints
             deposit = new Deposit(Guid.NewGuid(), tenant.TenantId!, project.Id, quote.Id, tenant.CustomerId, amount.Amount, amount.Currency, percent,
                 PaymentStates.Created, flow.ProviderName, now, null);
             await deposits.CreateAsync(deposit, ct);
+            await ContactSnapshot.RefreshAsync(http, tenant.TenantId!, tenant.CustomerId, ct);   // where to send order updates
         }
 
         deposit = await flow.OpenCheckoutAsync(deposit, quote.Issue.Number, ct);

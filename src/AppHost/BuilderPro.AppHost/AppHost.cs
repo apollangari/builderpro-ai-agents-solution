@@ -154,7 +154,10 @@ var quotes = builder.AddProject<Projects.BuilderPro_Quotes_Api>("quotes")
     .WaitFor(quotesDb)
     .WaitFor(cache)
     .WaitFor(identity)
-    .WaitFor(catalog);
+    .WaitFor(catalog)
+    // Final gaps: order updates by email go to Mailpit locally (open its page to read them).
+    .WithEnvironment("Notifications__Smtp__Host", mailpit.GetEndpoint("smtp").Property(EndpointProperty.Host))
+    .WithEnvironment("Notifications__Smtp__Port", mailpit.GetEndpoint("smtp").Property(EndpointProperty.Port));
 
 // 6d: Stripe payments (TEST mode). Opt-in: only when BOTH user secrets exist; otherwise the deposit uses
 // the simulated test-mode page. Webhooks reach your machine with the Stripe CLI:

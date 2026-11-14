@@ -75,6 +75,7 @@ public static class VisitEndpoints
         var visit = new Visit(Guid.NewGuid(), tenant.TenantId!, project.Id, project.CustomerId, start.ToUniversalTime(), VisitStatus.Booked, user.UserKey, now);
         if (!await visits.BookAsync(visit, PerSlot(config), ct))
             return Problem(StatusCodes.Status409Conflict, "slot_full", "That time was just taken. Pick another one.");
+        await ContactSnapshot.RefreshAsync(http, tenant.TenantId!, tenant.CustomerId, ct);   // where to send visit and install updates
         await projects.UpdateAsync(project with { UpdatedAt = now }, ct);
         return Results.Ok(ToDto(visit));
     }

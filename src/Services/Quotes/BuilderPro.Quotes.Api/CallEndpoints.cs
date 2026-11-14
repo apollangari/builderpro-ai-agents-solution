@@ -13,7 +13,7 @@ public sealed record AutomatedCallsDto(bool Available, bool Consented, string Wo
 public sealed record CallEventRequest(string? Event, string? Digits);
 
 /// <summary>The customer's profile as Identity has it (phone, contact hours, contact consent).</summary>
-public sealed record CustomerProfile(string? Phone, string ContactHours, string ContactConsent);
+public sealed record CustomerProfile(string? Phone, string ContactHours, string ContactConsent, string? Email = null);
 
 /// <summary>Reads the caller's own profile from Identity with their token (only while they're the caller).</summary>
 public interface IProfileReader
@@ -23,7 +23,7 @@ public interface IProfileReader
 
 public sealed class IdentityProfileReader(HttpClient client, ILogger<IdentityProfileReader> log) : IProfileReader
 {
-    private sealed record Profile(string? Phone, string? ContactHours, string? ContactConsent);
+    private sealed record Profile(string? Phone, string? ContactHours, string? ContactConsent, string? Email);
 
     public async Task<CustomerProfile?> MineAsync(HttpContext http, CancellationToken ct)
     {
@@ -35,7 +35,8 @@ public sealed class IdentityProfileReader(HttpClient client, ILogger<IdentityPro
             using var response = await client.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode) return null;
             var p = await response.Content.ReadFromJsonAsync<Profile>(ct);
-            return p is null ? null : new CustomerProfile(string.IsNullOrWhiteSpace(p.Phone) ? null : p.Phone.Trim(), p.ContactHours ?? "business", p.ContactConsent ?? "none");
+            return p is null ? null : new CustomerProfile(string.IsNullOrWhiteSpace(p.Phone) ? null : p.Phone.Trim(), p.ContactHours ?? "business", p.ContactConsent ?? "none",
+                string.IsNullOrWhiteSpace(p.Email) ? null : p.Email.Trim());
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException { CancellationToken.IsCancellationRequested: false } or JsonException)
         {
@@ -123,6 +124,7 @@ public static class CallEndpoints
         if (profile.Phone is null) return Problem(StatusCodes.Status422UnprocessableEntity, "no_phone", "Add a phone number to your account first.");
 
         var channels = profile.ContactConsent is "text" or "both" ? "email,sms" : "email";
+        await ContactSnapshot.RefreshAsync(http, tenant.TenantId!, tenant.CustomerId, ct);
         await calls.AppendConsentAsync(new CallConsent(0, tenant.TenantId!, tenant.CustomerId, true, profile.Phone, profile.ContactHours, channels, version, "project", now), ct);
 
         // A call is due now if the project waits for a visit; the dispatcher moves it into the contact hours.

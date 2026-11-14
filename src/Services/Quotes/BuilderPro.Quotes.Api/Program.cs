@@ -39,6 +39,14 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<PaymentReconciler>
 builder.Services.AddSingleton<IInstallStore, PostgresInstallStore>();   // 6c
 // 4b: automated scheduling calls. Telephony is simulated until a provider (ACS / Twilio) is configured.
 builder.Services.AddSingleton<ICallStore, PostgresCallStore>();
+// Final gaps: deliver the outbox (email via SMTP/Mailpit; texts simulated until an SMS provider is configured).
+builder.Services.AddSingleton<PostgresContactStore>();
+builder.Services.AddSingleton<IContactStore>(sp => sp.GetRequiredService<PostgresContactStore>());
+builder.Services.AddSingleton<INotificationOutbox>(sp => sp.GetRequiredService<PostgresContactStore>());
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddSingleton<ISmsSender, SimulatedSmsSender>();
+builder.Services.AddSingleton<NotificationSender>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NotificationSender>());
 builder.Services.AddSingleton<ITelephony, SimulatedTelephony>();
 builder.Services.AddSingleton<CallDispatcher>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<CallDispatcher>());
@@ -72,6 +80,7 @@ await app.Services.GetRequiredService<IDepositStore>().InitializeAsync(Cancellat
 await app.Services.GetRequiredService<IVisitStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IInstallStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<ICallStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IContactStore>().InitializeAsync(CancellationToken.None);
 
 app.UseExceptionHandler();
 app.UseAuthentication();
