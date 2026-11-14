@@ -1722,3 +1722,67 @@ public sealed class NotificationSenderTests
         Assert.Equal(0, await sender.RunOnceAsync(default));   // nothing is sent twice
     }
 }
+
+
+/// <summary>Final gaps: the balance when the job is done.</summary>
+public sealed class BalanceTests
+{
+    private static readonly object Answers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<(Guid Id, DepositDto Deposit)> Done(QuotesFactory f)
+    {
+        var p = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As("alice").PutAsJsonAsync($"/api/projects/{p.Id}/answers", Answers);
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/quote", null);
+        await f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null);
+        var d = (await (await f.As("alice").PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        await f.As("alice").PostAsync($"/api/deposits/{d.Id}/pay", null);
+        await f.As("alice").PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero) });
+        await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } } });
+        foreach (var step in new[] { "fabricating", "installing", "done" })
+        {
+            if (step == "fabricating") await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/install", new { step = "scheduled", scheduledFor = QuotesFactory.Now.AddDays(5) });
+            await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/install", new { step });
+        }
+        return (p.Id, d);
+    }
+
+    [Fact]
+    public async Task When_done_the_customer_pays_the_final_total_minus_the_deposit()
+    {
+        using var f = new QuotesFactory();
+        var (id, deposit) = await Done(f);
+        var project = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{id}"))!;
+        Assert.Equal("done", project.Stage);
+        Assert.Equal((project.Quote!.Total, deposit.Amount, project.Quote.Total - deposit.Amount), (project.Balance!.Total, project.Balance.DepositPaid, project.Balance.Due));
+
+        var r = await f.As("alice").PostAsync($"/api/projects/{id}/balance", null);
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        var payment = (await r.Content.ReadFromJsonAsync<DepositDto>())!;
+        Assert.Equal(("balance", "processing", project.Balance.Due), (payment.Kind, payment.Status, payment.Amount));
+        Assert.Equal(HttpStatusCode.OK, (await f.As("alice").PostAsync($"/api/deposits/{payment.Id}/pay", null)).StatusCode);
+
+        var after = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{id}"))!;
+        Assert.Equal(("done", 0m, "succeeded"), (after.Stage, after.Balance!.Due, after.Balance.Payment!.Status));
+        Assert.Equal(("succeeded", deposit.Id), (after.Deposit!.Status, after.Deposit.Id));   // the deposit is still the deposit
+        Assert.Equal(HttpStatusCode.OK, (await f.As("alice").PostAsync($"/api/projects/{id}/balance", null)).StatusCode);   // settled: returns the paid one
+    }
+
+    [Fact]
+    public async Task Only_the_customer_pays_and_only_when_the_job_is_done()
+    {
+        using var f = new QuotesFactory();
+        var early = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(HttpStatusCode.Conflict, (await f.As("alice").PostAsync($"/api/projects/{early.Id}/balance", null)).StatusCode);
+        var (id, _) = await Done(f);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("mia").PostAsync($"/api/projects/{id}/balance", null)).StatusCode);
+        var agent = f.As("alice");
+        agent.DefaultRequestHeaders.Add(AgentCall.Header, "concierge");
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync($"/api/projects/{id}/balance", null)).StatusCode);
+    }
+}

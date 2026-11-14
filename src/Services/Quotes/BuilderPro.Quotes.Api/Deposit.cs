@@ -13,9 +13,17 @@ public sealed record Deposit(
     Guid Id, string TenantId, Guid ProjectId, Guid QuoteId, string CustomerId,
     decimal Amount, string Currency, decimal Percent, string Status, string Provider,
     DateTimeOffset CreatedAt, DateTimeOffset? PaidAt, string? PaidBy = null,
-    string? ProviderRef = null, string? CheckoutUrl = null, DateTimeOffset? CheckoutExpiresAt = null)   // 6d: the provider's checkout
+    string? ProviderRef = null, string? CheckoutUrl = null, DateTimeOffset? CheckoutExpiresAt = null,   // 6d: the provider's checkout
+    string Kind = PaymentKinds.Deposit)                                                                   // final gaps: deposit or balance
 {
     public bool Paid => Status == PaymentStates.Succeeded;
+}
+
+/// <summary>What a payment is for: the 5 % deposit that holds the price, or the balance when the job is done.</summary>
+public static class PaymentKinds
+{
+    public const string Deposit = "deposit";
+    public const string Balance = "balance";
 }
 
 /// <summary>One recorded move of the payment state machine: the audit trail.</summary>
@@ -54,6 +62,9 @@ public interface IDepositStore
 
     /// <summary>Succeeded deposits of one tenant, paid in [from, to) (1i commission report).</summary>
     Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
+
+    /// <summary>Final gaps: the project's latest BALANCE payment (a succeeded one first), or null.</summary>
+    Task<Deposit?> BalanceForProjectAsync(string tenantId, Guid projectId, CancellationToken ct);
 }
 
 /// <summary>Deposits in Postgres (quotes schema v5, v9, v10).</summary>
@@ -63,7 +74,7 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
         id AS Id, tenant_id AS TenantId, project_id AS ProjectId, quote_id AS QuoteId, customer_id AS CustomerId,
         amount AS Amount, currency AS Currency, percent AS Percent, status AS Status, provider AS Provider,
         created_at AS CreatedAt, paid_at AS PaidAt, paid_by AS PaidBy,
-        provider_ref AS ProviderRef, checkout_url AS CheckoutUrl, checkout_expires_at AS CheckoutExpiresAt
+        provider_ref AS ProviderRef, checkout_url AS CheckoutUrl, checkout_expires_at AS CheckoutExpiresAt, kind AS Kind
         """;
 
     public async Task InitializeAsync(CancellationToken ct)
@@ -119,6 +130,12 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
                 detail text NULL);
             CREATE INDEX IF NOT EXISTS ix_payment_events_deposit ON quotes.payment_events(tenant_id, deposit_id, id);
             INSERT INTO quotes.schema_history(version) VALUES (10) ON CONFLICT DO NOTHING;
+
+            -- v13 (final gaps): a payment is a deposit or the balance.
+            ALTER TABLE quotes.deposits ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'deposit';
+            DROP INDEX IF EXISTS quotes.ux_deposits_succeeded;
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_succeeded ON quotes.deposits(quote_id, kind) WHERE status = 'succeeded';
+            INSERT INTO quotes.schema_history(version) VALUES (13) ON CONFLICT DO NOTHING;
             """, cancellationToken: ct));
     }
 
@@ -127,9 +144,9 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
         await using var conn = await db.OpenConnectionAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("""
-            INSERT INTO quotes.deposits(id, tenant_id, project_id, quote_id, customer_id, amount, currency, percent, status, provider, created_at)
-            VALUES (@Id, @TenantId, @ProjectId, @QuoteId, @CustomerId, @Amount, @Currency, @Percent, @Status, @Provider, @CreatedAt)
-            """, new { d.Id, d.TenantId, d.ProjectId, d.QuoteId, d.CustomerId, d.Amount, d.Currency, d.Percent, d.Status, d.Provider, CreatedAt = d.CreatedAt.UtcDateTime },
+            INSERT INTO quotes.deposits(id, tenant_id, project_id, quote_id, customer_id, amount, currency, percent, status, provider, created_at, kind)
+            VALUES (@Id, @TenantId, @ProjectId, @QuoteId, @CustomerId, @Amount, @Currency, @Percent, @Status, @Provider, @CreatedAt, @Kind)
+            """, new { d.Id, d.TenantId, d.ProjectId, d.QuoteId, d.CustomerId, d.Amount, d.Currency, d.Percent, d.Status, d.Provider, CreatedAt = d.CreatedAt.UtcDateTime, d.Kind },
             tx, cancellationToken: ct));
         await AppendAsync(conn, tx, d.TenantId, d.Id, "", d.Status, d.CreatedAt, PaymentSources.Checkout, $"{d.Amount} {d.Currency} via {d.Provider}", ct);
         await tx.CommitAsync(ct);
@@ -148,7 +165,7 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND quote_id = @quoteId ORDER BY (status = 'succeeded') DESC, created_at DESC LIMIT 1",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND quote_id = @quoteId AND kind = 'deposit' ORDER BY (status = 'succeeded') DESC, created_at DESC LIMIT 1",
             new { tenantId, quoteId }, cancellationToken: ct));
         return row?.ToDomain();
     }
@@ -201,7 +218,7 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND status = 'succeeded' ORDER BY paid_at DESC LIMIT 1",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND status = 'succeeded' AND kind = 'deposit' ORDER BY paid_at DESC LIMIT 1",
             new { tenantId, projectId }, cancellationToken: ct));
         return row?.ToDomain();
     }
@@ -210,9 +227,18 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<Row>(new CommandDefinition(
-            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND status = 'succeeded' AND paid_at >= @from AND paid_at < @to ORDER BY paid_at",
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND status = 'succeeded' AND kind = 'deposit' AND paid_at >= @from AND paid_at < @to ORDER BY paid_at",
             new { tenantId, from = from.UtcDateTime, to = to.UtcDateTime }, cancellationToken: ct));
         return [.. rows.Select(r => r.ToDomain())];
+    }
+
+    public async Task<Deposit?> BalanceForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND kind = 'balance' ORDER BY (status = 'succeeded') DESC, created_at DESC LIMIT 1",
+            new { tenantId, projectId }, cancellationToken: ct));
+        return row?.ToDomain();
     }
 
     private static Task AppendAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string tenantId, Guid depositId, string from, string to, DateTimeOffset at,
@@ -251,11 +277,12 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
         public string? ProviderRef { get; init; }
         public string? CheckoutUrl { get; init; }
         public DateTime? CheckoutExpiresAt { get; init; }
+        public string Kind { get; init; } = PaymentKinds.Deposit;
 
         private static DateTimeOffset Utc(DateTime d) => new(DateTime.SpecifyKind(d, DateTimeKind.Utc));
 
         public Deposit ToDomain() => new(Id, TenantId, ProjectId, QuoteId, CustomerId, Amount, Currency.Trim(), Percent, Status, Provider,
-            Utc(CreatedAt), PaidAt is DateTime p ? Utc(p) : null, PaidBy, ProviderRef, CheckoutUrl, CheckoutExpiresAt is DateTime e ? Utc(e) : null);
+            Utc(CreatedAt), PaidAt is DateTime p ? Utc(p) : null, PaidBy, ProviderRef, CheckoutUrl, CheckoutExpiresAt is DateTime e ? Utc(e) : null, Kind);
     }
 }
 
@@ -287,7 +314,7 @@ public sealed class InMemoryDepositStore : IDepositStore
     {
         lock (_gate)
         {
-            return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.QuoteId == quoteId)
+            return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.QuoteId == quoteId && d.Kind == PaymentKinds.Deposit)
                 .OrderByDescending(d => d.Paid).ThenByDescending(d => d.CreatedAt).ThenByDescending(d => _rows.IndexOf(d)).FirstOrDefault());
         }
     }
@@ -331,7 +358,7 @@ public sealed class InMemoryDepositStore : IDepositStore
 
     public Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
     {
-        lock (_gate) return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.ProjectId == projectId && d.Paid).OrderByDescending(d => d.PaidAt).FirstOrDefault());
+        lock (_gate) return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.ProjectId == projectId && d.Paid && d.Kind == PaymentKinds.Deposit).OrderByDescending(d => d.PaidAt).FirstOrDefault());
     }
 
     public Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
@@ -339,7 +366,16 @@ public sealed class InMemoryDepositStore : IDepositStore
         lock (_gate)
         {
             return Task.FromResult<IReadOnlyList<Deposit>>([.. _rows
-                .Where(d => d.TenantId == tenantId && d.Paid && d.PaidAt >= from && d.PaidAt < to).OrderBy(d => d.PaidAt)]);
+                .Where(d => d.TenantId == tenantId && d.Paid && d.Kind == PaymentKinds.Deposit && d.PaidAt >= from && d.PaidAt < to).OrderBy(d => d.PaidAt)]);
+        }
+    }
+
+    public Task<Deposit?> BalanceForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.ProjectId == projectId && d.Kind == PaymentKinds.Balance)
+                .OrderByDescending(d => d.Paid).ThenByDescending(d => d.CreatedAt).ThenByDescending(d => _rows.IndexOf(d)).FirstOrDefault());
         }
     }
 }

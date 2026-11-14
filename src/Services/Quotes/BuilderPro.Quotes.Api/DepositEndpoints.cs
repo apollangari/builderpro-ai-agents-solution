@@ -5,7 +5,10 @@ namespace BuilderPro.Quotes.Api;
 
 public sealed record DepositDto(
     Guid Id, Guid ProjectId, int QuoteNumber, decimal QuoteTotal, decimal Amount, string Currency, decimal Percent,
-    string Status, DateTimeOffset? PaidAt, string CheckoutUrl, string Provider = DepositEndpoints.Simulated);
+    string Status, DateTimeOffset? PaidAt, string CheckoutUrl, string Provider = DepositEndpoints.Simulated, string Kind = PaymentKinds.Deposit);
+
+/// <summary>Final gaps: what's left to pay when the job is done (final total - deposit paid) and its payment.</summary>
+public sealed record BalanceDto(decimal Total, decimal DepositPaid, decimal Due, string Currency, DepositDto? Payment);
 
 public sealed record PaymentEventDto(string From, string To, DateTimeOffset At, string Source, string? Detail);
 public sealed record SimulatedPayRequest(string? Outcome = null);   // "decline" fails the test payment
@@ -196,7 +199,7 @@ public static class DepositEndpoints
 
     internal static DepositDto ToDto(Deposit d, HttpContext http, Quote? quote = null) =>
         new(d.Id, d.ProjectId, quote?.Issue?.Number ?? 0, quote?.Priced.Total.Amount ?? 0, d.Amount, d.Currency, d.Percent, d.Status, d.PaidAt,
-            CheckoutUrl: d.CheckoutUrl ?? $"/pay/{d.Id}", Provider: d.Provider);
+            CheckoutUrl: d.CheckoutUrl ?? $"/pay/{d.Id}", Provider: d.Provider, Kind: d.Kind);
 
     internal static string Provider(IConfiguration config) => config["Payments:Provider"] ?? Simulated;
 

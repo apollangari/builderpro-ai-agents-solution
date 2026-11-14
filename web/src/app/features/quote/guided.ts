@@ -228,6 +228,8 @@ export interface DepositInfo {
   checkoutUrl: string;
   /** simulated (our test page) or stripe. */
   provider?: string;
+  /** deposit (holds the price) or balance (when the job is done). */
+  kind?: 'deposit' | 'balance';
 }
 
 export interface ProjectAnswers {
@@ -253,6 +255,8 @@ export interface Project {
   visit?: VisitInfo | null;
   /** 6c: installation steps. */
   install?: InstallInfo | null;
+  /** Final gaps: what's left to pay when the job is done. */
+  balance?: { total: number; depositPaid: number; due: number; currency: string; payment: DepositInfo | null } | null;
 }
 
 export interface ProjectSummary {

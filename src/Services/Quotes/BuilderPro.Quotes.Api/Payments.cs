@@ -124,7 +124,8 @@ public static class StripeForm
         new("line_items[0][quantity]", "1"),
         new("line_items[0][price_data][currency]", d.Currency.ToLowerInvariant()),
         new("line_items[0][price_data][unit_amount]", MinorUnits(d.Amount).ToString(CultureInfo.InvariantCulture)),
-        new("line_items[0][price_data][product_data][name]", $"Deposit for quote Q-{quoteNumber} ({d.Percent:0.##}%)"),
+        new("line_items[0][price_data][product_data][name]", d.Kind == PaymentKinds.Balance
+            ? $"Balance for quote Q-{quoteNumber}" : $"Deposit for quote Q-{quoteNumber} ({d.Percent:0.##}%)"),
         new("metadata[deposit_id]", d.Id.ToString()),
         new("metadata[tenant_id]", d.TenantId),
         new("payment_intent_data[metadata][deposit_id]", d.Id.ToString()),

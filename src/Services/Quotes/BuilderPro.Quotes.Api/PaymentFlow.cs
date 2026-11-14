@@ -63,7 +63,7 @@ public sealed class PaymentFlow(IDepositStore deposits, IProjectStore projects, 
             return deposit;
         }
         var paid = await MoveAsync(deposit, PaymentStates.Succeeded, source, paymentRef, paymentRef, ct);
-        if (paid.Paid) await HoldPriceAsync(paid, ct);
+        if (paid.Paid && paid.Kind == PaymentKinds.Deposit) await HoldPriceAsync(paid, ct);   // a paid balance just settles the job
         return paid;
     }
 

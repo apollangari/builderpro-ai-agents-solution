@@ -19,7 +19,8 @@ public sealed record ProjectDto(
     GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt,
     DepositDto? Deposit = null, string? PreparedBy = null,   // 1i: the salesperson who prepared it
     VisitDto? Visit = null,                                   // 6b: the measure visit
-    InstallDto? Install = null);                              // 6c: installation steps
+    InstallDto? Install = null,                               // 6c: installation steps
+    BalanceDto? Balance = null);                              // final gaps: what's left to pay when done
 
 public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt,
     string? PreparedBy = null, string? CustomerId = null);
@@ -47,6 +48,7 @@ public static class ProjectEndpoints
         api.MapVisitEndpoints();   // 6b: measure visit, measured quote, confirm
         api.MapInstallEndpoints(); // 6c: installation steps and order updates
         api.MapCallEndpoints();    // 4b: automated scheduling calls (consent, status)
+        api.MapBalanceEndpoints(); // final gaps: the balance when the job is done
         api.MapPost("/{id:guid}/deposit", DepositEndpoints.StartAsync).WithSummary("Start the 5 % deposit for the accepted quote: returns the amount and where to pay. Customer only, never an agent.");
         return app;
     }
@@ -302,7 +304,8 @@ public static class ProjectEndpoints
         using var answers = JsonDocument.Parse(p.AnswersJson);
         return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt,
             deposit is null ? null : DepositEndpoints.ToDto(deposit, http), PreparedBy: p.SalespersonName,
-            Visit: visit is null ? null : VisitEndpoints.ToDto(visit), Install: install);
+            Visit: visit is null ? null : VisitEndpoints.ToDto(visit), Install: install,
+            Balance: await BalanceEndpoints.DueAsync(p, quote, http.RequestServices.GetRequiredService<IDepositStore>(), http, ct));
     }
 
     private static IResult Problem(int status, string code, string detail) =>

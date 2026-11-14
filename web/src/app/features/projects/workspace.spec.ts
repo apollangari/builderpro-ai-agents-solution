@@ -167,6 +167,21 @@ describe('WorkspacePage (2n-f)', () => {
     expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Install');
   });
 
+  it('when the job is done, the balance is due and Pay balance opens the payment page', async () => {
+    const el = await open(project({
+      stage: 'done', quote: { ...issued, status: 'accepted', held: true },
+      balance: { total: 6048.47, depositPaid: 302.42, due: 5746.05, currency: 'USD', payment: null },
+    }));
+    expect(el.querySelector('[data-testid="balance-due"]')?.textContent).toContain('$5,746.05');
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    el.querySelector<HTMLButtonElement>('[data-testid="pay-balance"]')!.click();
+    await settle();
+    http.expectOne((r) => r.url === '/api/projects/p1/balance' && r.method === 'POST')
+      .flush({ id: 'b1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 5746.05, currency: 'USD', percent: 0, status: 'processing', paidAt: null, checkoutUrl: '/pay/b1', kind: 'balance' });
+    await settle();
+    expect(navigate).toHaveBeenCalledWith('/pay/b1');
+  });
+
   it('a changed measured total waits for the customer to confirm it', async () => {
     const el = await open(project({
       stage: 'confirm', quote: { ...issued, number: 1043, total: 6500, held: false },

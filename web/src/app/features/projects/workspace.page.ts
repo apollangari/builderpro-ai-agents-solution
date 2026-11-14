@@ -112,6 +112,16 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                 } @else if (q.held && (p.stage === 'install' || p.stage === 'done')) {
                   @if (p.stage === 'done') {
                     <p class="ok" data-testid="installed">Installed. Thank you for building with us!</p>
+                    @if (p.balance; as b) {
+                      @if (b.due > 0) {
+                        <p data-testid="balance-due">Balance due: <strong>{{ b.due | currency: b.currency }}</strong> ({{ b.total | currency: b.currency }} less your {{ b.depositPaid | currency: b.currency }} deposit).</p>
+                        @if (features.isCustomer()) {
+                          <div class="actions"><button type="button" class="btn btn-primary" (click)="payBalance()" [disabled]="busy()" data-testid="pay-balance">Pay balance</button></div>
+                        }
+                      } @else if (b.payment?.status === 'succeeded') {
+                        <p class="ok" data-testid="balance-paid">Paid in full. Thank you!</p>
+                      }
+                    }
                   } @else {
                     <p class="ok" data-testid="order-confirmed">Measured and confirmed: this is your order.
                       @if (p.install?.scheduledFor) { Installation is scheduled for {{ p.install!.scheduledFor | date: 'EEEE, MMM d' }}. } @else { We'll schedule the installation with you next. }</p>
@@ -329,7 +339,7 @@ export class WorkspacePage {
   protected readonly askText = signal<string | null>(null);
 
   /** Quote and accept are POSTs fired by the customer's buttons. */
-  private readonly action = signal<{ kind: 'quote' | 'accept' | 'deposit' | 'confirm'; n: number } | null>(null);
+  private readonly action = signal<{ kind: 'quote' | 'accept' | 'deposit' | 'confirm' | 'balance'; n: number } | null>(null);
   private readonly actionResult = httpResource<Project>(() => {
     const a = this.action();
     const p = this.project();
@@ -344,7 +354,7 @@ export class WorkspacePage {
     effect(() => {
       if (!this.actionResult.hasValue()) return;
       const result = this.actionResult.value() as unknown as Project & { checkoutUrl?: string };
-      if (this.action()?.kind === 'deposit' && result.checkoutUrl) {
+      if ((this.action()?.kind === 'deposit' || this.action()?.kind === 'balance') && result.checkoutUrl) {
         // Stripe Checkout is another site; our test-mode page is a route here.
         if (/^https?:/.test(result.checkoutUrl)) leaveFor.go(result.checkoutUrl);
         else void this.router.navigateByUrl(result.checkoutUrl);
@@ -375,6 +385,11 @@ export class WorkspacePage {
   protected installDate(step: string): string | null {
     const events = this.project()?.install?.events ?? [];
     return [...events].reverse().find((e) => e.step === step)?.at ?? null;
+  }
+
+  /** Final gaps: pay what's left when the job is done (same payment flow as the deposit). */
+  protected payBalance(): void {
+    this.action.set({ kind: 'balance', n: ++this.n });
   }
 
   /** 6b: the customer accepts the measured quote. */

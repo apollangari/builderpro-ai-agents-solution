@@ -26,13 +26,17 @@ export const leaveFor = { go: (url: string) => window.location.assign(url) };
         @if (deposit.error()) {
           <div class="warning" role="alert"><span>{{ describe(deposit.error()) }}</span></div>
         } @else if (current(); as d) {
-          <span class="eyebrow">Deposit · Quote Q-{{ d.quoteNumber }}</span>
-          <h1>Hold your price</h1>
+          <span class="eyebrow">{{ d.kind === 'balance' ? 'Balance' : 'Deposit' }} · Quote Q-{{ d.quoteNumber }}</span>
+          <h1>{{ d.kind === 'balance' ? 'Pay your balance' : 'Hold your price' }}</h1>
           <p class="amount" data-testid="pay-amount">{{ d.amount | currency: d.currency }}</p>
-          <p class="muted">{{ d.percent }}% of {{ d.quoteTotal | currency: d.currency }}. It's taken off your final bill.</p>
+          @if (d.kind === 'balance') {
+            <p class="muted">What's left of {{ d.quoteTotal | currency: d.currency }} after your deposit.</p>
+          } @else {
+            <p class="muted">{{ d.percent }}% of {{ d.quoteTotal | currency: d.currency }}. It's taken off your final bill.</p>
+          }
           @switch (d.status) {
             @case ('succeeded') {
-              <p class="ok" data-testid="pay-done">Paid. Your price is held.</p>
+              <p class="ok" data-testid="pay-done">{{ d.kind === 'balance' ? 'Paid in full. Thank you!' : 'Paid. Your price is held.' }}</p>
             }
             @case ('failed') {
               <div class="warning" role="alert" data-testid="pay-failed"><span>This payment didn't go through. Nothing was charged; start the deposit again from your project.</span></div>
