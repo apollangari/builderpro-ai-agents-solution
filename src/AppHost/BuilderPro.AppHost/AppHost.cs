@@ -101,6 +101,7 @@ var postgres = builder.AddPostgres("postgres")
 var identityDb = postgres.AddDatabase("identitydb");
 var catalogDb = postgres.AddDatabase("catalogdb");
 var quotesDb = postgres.AddDatabase("quotesdb");
+var assistantDb = postgres.AddDatabase("assistantdb");   // 3e: conversations (database-per-service)
 
 // ---------------------------------------------------------------------------
 // Redis: a CACHE, never a source of truth. Services that read cached data and Identity
@@ -181,6 +182,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["Parameters:stripe-secret-k
 // Without them the assistant answers 503 and everything else works.
 // ---------------------------------------------------------------------------
 var assistant = builder.AddProject<Projects.BuilderPro_Assistant_Api>("assistant")
+    .WithReference(assistantDb)
+    .WaitFor(assistantDb)
     .WithReference(identity)
     .WithReference(catalog)
     .WithReference(quotes)

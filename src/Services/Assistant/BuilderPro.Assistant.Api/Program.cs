@@ -14,6 +14,11 @@ builder.Services.AddProblemDetails();
 builder.Services.AddBuilderProAuth(builder.Configuration);
 builder.Services.AddTenantLookup(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton(TimeProvider.System);
+
+// 3e: the Assistant's own database: conversations, so store staff can take over a chat.
+builder.AddNpgsqlDataSource("assistantdb");
+builder.Services.AddSingleton<IConversationStore, PostgresConversationStore>();
 
 // The tools call the platform through service discovery, as the caller (PlatformTools.cs).
 builder.Services.AddHttpClient("catalog", c => c.BaseAddress = new Uri("http://catalog"));
@@ -64,6 +69,8 @@ builder.Services.AddSingleton<IAssistantChatClient>(sp => new AssistantChatClien
 
 var app = builder.Build();
 
+await app.Services.GetRequiredService<IConversationStore>().InitializeAsync(CancellationToken.None);
+
 app.UseExceptionHandler();
 app.UseMcpAuthChallenge();   // 3c: 401s from MCP say where to get a token
 app.UseAuthentication();
@@ -72,6 +79,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapAssistantEndpoints();
 app.MapConciergeEndpoints();   // 3b
+app.MapConversationEndpoints(); // 3e: staff see, take over, reply, hand back
 app.MapMcp("/api/assistant/mcp").RequireAuthorization();   // 3c: MCP, signed-in callers only
 app.MapMcpAuthMetadata();                                    // 3c: OAuth protected-resource metadata
 

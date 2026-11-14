@@ -10,11 +10,12 @@ namespace BuilderPro.Assistant.Api;
 /// draft (the last guided request the concierge priced), so the server keeps no chat state.
 /// </summary>
 public sealed record ConciergeRequest(ChatTurn[]? Messages, string? AccountZip = null, JsonElement? Draft = null, Guid? ProjectId = null,
-    CatalogContext? Catalog = null);
+    CatalogContext? Catalog = null, Guid? ConversationId = null);
 
 /// <summary>Draft + Quote are set when the concierge priced a draft this turn; the page keeps the last ones.</summary>
 public sealed record ConciergeReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed, JsonElement? Draft, JsonElement? Quote,
-    bool ProjectChanged = false, CatalogFilterDto? Filter = null);
+    bool ProjectChanged = false, CatalogFilterDto? Filter = null,
+    Guid? ConversationId = null, string Answering = "concierge", string? StaffName = null, long LastSeq = 0);   // 3e: who answers
 
 /// <summary>
 /// The concierge (3b): walks the customer through the guided quote (ZIP, project type, product,
@@ -143,7 +144,6 @@ public static class ConciergeEndpoints
 
         var tenant = await tenants.ResolveAsync(http, ct);
         if (!tenant.Resolved) return AssistantEndpoints.Problem(tenant.Status, tenant.Code, "Could not determine your store.");
-        if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
 
         // The store's package (1h): the concierge acts only where it's included; a help chat only answers.
         var concierge = tenant.HasFeature(StoreFeatures.Concierge);
@@ -152,13 +152,37 @@ public static class ConciergeEndpoints
         if (request.Catalog is null && request.ProjectId is null && !concierge) return NotIncluded("The concierge isn't part of your store's package.");
 
         var ledger = new PriceLedger();
-        if (request.Catalog is { } catalog) return await CatalogChatAsync(catalog, turns, api, chat.Client, ledger, log, ct);
+        if (request.Catalog is { } catalog)
+        {
+            if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
+            return await CatalogChatAsync(catalog, turns, api, chat.Client!, ledger, log, ct);
+        }
+
+        // 3e: the conversation is kept, so store staff can see it and take over. While a person answers,
+        // the concierge stays quiet: the customer's message goes to them.
+        var conversations = http.RequestServices.GetService<IConversationStore>();
+        var clock = http.RequestServices.GetRequiredService<TimeProvider>();
+        Conversation? conversation = null;
+        if (conversations is not null && tenant.CustomerId is not null && turns.LastOrDefault() is { Role: "user" } said)
+        {
+            conversation = request.ConversationId is Guid cid ? await conversations.FindAsync(tenant.TenantId!, tenant.CustomerId, cid, ct) : null;
+            if (conversation is null)
+            {
+                var start = clock.GetUtcNow();
+                conversation = new Conversation(Guid.NewGuid(), tenant.TenantId!, tenant.CustomerId, request.ProjectId, ConversationModes.Concierge, null, null, start, start);
+                await conversations.CreateAsync(conversation, ct);
+            }
+            var seq = await conversations.AppendAsync(conversation.TenantId, conversation.Id, MessageRoles.Customer, said.Content, null, clock.GetUtcNow(), ct);
+            if (conversation.Mode == ConversationModes.Staff)
+                return Results.Ok(new ConciergeReply("", false, [], null, null, ConversationId: conversation.Id, Answering: "staff", StaffName: conversation.StaffName, LastSeq: seq));
+        }
+        if (chat.Client is null) return AssistantEndpoints.Problem(StatusCodes.Status503ServiceUnavailable, "assistant_unavailable", "The assistant isn't configured.");
         var drafts = new DraftLedger();
         var helpOnly = !concierge;
         var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId, helpOnly, http.RequestServices.GetService<ISchedulingAgent>());
         var instructions = helpOnly ? HelpInstructions
             : request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;
-        var agent = new ChatClientAgent(chat.Client, instructions, "builderpro-concierge", "Guided quote concierge", tools.All());
+        var agent = new ChatClientAgent(chat.Client!, instructions, "builderpro-concierge", "Guided quote concierge", tools.All());
 
         // What the page knows, as context (not as instructions from the customer).
         string context;
@@ -183,11 +207,13 @@ public static class ConciergeEndpoints
         if (failed is not null) return failed;
 
         var unbacked = PriceGuard.Unbacked(reply, ledger.Amounts);
-        if (unbacked.Count > 0)
-        {
-            log.LogWarning("Price guard blocked a concierge reply with amounts no tool returned: {Amounts}", unbacked);
-            return Results.Ok(new ConciergeReply(AssistantEndpoints.GuardedReply, true, ledger.ToolsUsed, drafts.Request, drafts.Quote, tools.ProjectChanged));
-        }
-        return Results.Ok(new ConciergeReply(reply, false, ledger.ToolsUsed, drafts.Request, drafts.Quote, tools.ProjectChanged));
+        var guarded = unbacked.Count > 0;
+        if (guarded) log.LogWarning("Price guard blocked a concierge reply with amounts no tool returned: {Amounts}", unbacked);
+        var text = guarded ? AssistantEndpoints.GuardedReply : reply;
+        long last = 0;
+        if (conversation is not null && conversations is not null)
+            last = await conversations.AppendAsync(conversation.TenantId, conversation.Id, MessageRoles.Concierge, text, null, clock.GetUtcNow(), ct);
+        return Results.Ok(new ConciergeReply(text, guarded, ledger.ToolsUsed, drafts.Request, drafts.Quote, tools.ProjectChanged,
+            ConversationId: conversation?.Id, LastSeq: last));
     }
 }

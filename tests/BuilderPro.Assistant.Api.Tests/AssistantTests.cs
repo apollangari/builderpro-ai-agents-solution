@@ -28,7 +28,7 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue("X-Test-Sub", out var sub)) return Task.FromResult(AuthenticateResult.NoResult());
-        var id = new ClaimsIdentity([new Claim("iss", "http://idp.test/realms/builderpro"), new Claim("sub", sub.ToString())], SchemeName);
+        var id = new ClaimsIdentity([new Claim("iss", "http://idp.test/realms/builderpro"), new Claim("sub", sub.ToString()), new Claim("given_name", char.ToUpperInvariant(sub.ToString()[0]) + sub.ToString()[1..])], SchemeName);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(id), SchemeName)));
     }
 }
@@ -42,6 +42,11 @@ public sealed class FakeTenants : ITenantLookup
             // 1h packages: a store with the help chat only, and one with the guided workflow only.
             "gail" => TenantLookup.Ok("t-globex", ["quotes.read"], "c-gail", [StoreFeatures.Guided, StoreFeatures.HelpChat]),
             "nick" => TenantLookup.Ok("t-nochat", ["quotes.read"], "c-nick", [StoreFeatures.Guided]),
+            // 3e: store staff who can answer chats, staff who can't, and another store's support.
+            "bob" => TenantLookup.Ok("t-acme", ["quotes.read", "support.chat"]),
+            "mia" => TenantLookup.Ok("t-acme", ["quotes.read", "support.chat"]),
+            "sam" => TenantLookup.Ok("t-acme", ["quotes.read", "sales"]),
+            "gus" => TenantLookup.Ok("t-globex", ["quotes.read", "support.chat"]),
             _ => TenantLookup.Ok("t-acme", ["quotes.read"], "c-alice"),
         });
 }
@@ -147,16 +152,20 @@ public sealed class AssistantFactory : WebApplicationFactory<Program>
 {
     public ScriptedModel Model { get; } = new();
     public FakePlatform Platform { get; } = new();
+    public InMemoryConversationStore Conversations { get; } = new();
     public bool Configured { get; set; } = true;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("Auth:Authority", "http://idp.test/realms/builderpro");
         builder.UseSetting("Auth:RequireHttpsMetadata", "false");
+        builder.UseSetting("ConnectionStrings:assistantdb", "Host=unused.test;Database=assistantdb");
         builder.ConfigureTestServices(s =>
         {
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup, FakeTenants>();
+            s.RemoveAll<IConversationStore>();
+            s.AddSingleton<IConversationStore>(Conversations);
             s.RemoveAll<IPlatformApi>();
             s.AddSingleton<IPlatformApi>(Platform);
             s.RemoveAll<IAssistantChatClient>();
