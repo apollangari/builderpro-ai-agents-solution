@@ -69,6 +69,9 @@ interface MyMembership {
                 <p class="who">{{ displayName() }}</p>
                 <a role="menuitem" routerLink="/projects" data-testid="menu-projects">My projects</a>
                 <a role="menuitem" routerLink="/quotes">My quotes</a>
+                @if (features.desk()) {
+                  <a role="menuitem" routerLink="/desk" data-testid="menu-desk">Store desk</a>
+                }
                 @if (features.salesDesk()) {
                   <a role="menuitem" routerLink="/sales" data-testid="menu-sales">Sales</a>
                 }

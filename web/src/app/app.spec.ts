@@ -27,7 +27,7 @@ async function render(oidc: ReturnType<typeof fakeOidc>, answerConsentSync = tru
     imports: [App],
     providers: [
       provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: OidcSecurityService, useValue: oidc },
-      { provide: StoreFeatures, useValue: { salesDesk: signal(false) } },
+      { provide: StoreFeatures, useValue: { salesDesk: signal(false), desk: signal(false) } },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(App);

@@ -34,4 +34,10 @@ export class StoreFeatures {
   readonly salesperson = computed(() => !this.isCustomer() && this.scopes().includes('sales'));
   /** 1i: the Sales page (salesperson, or a manager who reads the commission report). */
   readonly salesDesk = computed(() => this.salesperson() || (!this.isCustomer() && this.scopes().includes('sales.report')));
+  /** 3e: store staff who answer customer chats. */
+  readonly supportChat = computed(() => !this.isCustomer() && this.scopes().includes('support.chat'));
+  /** 3e/6b/6c: store staff who measure, schedule and install. */
+  readonly scheduling = computed(() => !this.isCustomer() && this.scopes().includes('scheduling.write'));
+  /** The store desk (chats and/or the work queue). */
+  readonly desk = computed(() => this.supportChat() || this.scheduling());
 }

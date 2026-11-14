@@ -11,6 +11,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable |
 |---|---|
+| 3e | A person can take over: chats kept in the Assistant's own database; staff (support.chat) list, take over (concierge paused, no model call), reply by name, hand back; the customer always sees who answers. Store desk /desk: chats + work queue (visits to measure, installs to move on, calls asking for a person) ([LEARN](learn/03e-staff-takeover.md)) |
 | 4b | AI phone scheduling (store option phone-scheduling): separate automated-call consent with wording version (append-only); calls only inside contact hours and 9-20; offers up to 3 visit times, 0 for a person, 9 to stop (opt-out cancels every call); never books (confirm link -> customer confirms); dispatcher + telephony seam (simulated; ACS/Twilio later); signed provider callback ([LEARN](learn/04b-phone-scheduling.md)) |
 | 4a | Python **LangGraph** scheduling agent over **A2A 1.0** (agent card, JSON-RPC SendMessage): proposes up to 3 measure-visit times within the customer's contact hours, never books; the concierge calls it (propose_visit_times); on-behalf-of at every hop (Assistant -> builderpro-scheduling -> builderpro-api), no token passthrough; Aspire uvicorn app with OTLP traces; CI pytest job ([LEARN](learn/04a-a2a-scheduling-agent.md)) |
 | 3c | Catalog/quote tools over **MCP** (Streamable HTTP, read and price only) with **on-behalf-of** auth: the Assistant accepts tokens for itself and calls the platform with an RFC 8693 / Entra-OBO exchanged token for the same user (no passthrough); RFC 9728 discovery; realm clients builderpro-assistant and builderpro-mcp ([LEARN](learn/03c-mcp.md)) |
@@ -60,7 +61,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | # | Deliverable | Done when |
 |---|---|---|
 | 3d | **ON HOLD (owner, 2026-11-14).** **Estimate from photos**: the customer attaches kitchen photos; a vision model proposes layout (L / U / island), approximate sq ft and cut-outs, shown as "Estimated from photos" with "final numbers are confirmed at the measurement visit" | Estimates are labelled everywhere they appear (layout, quote lines) and replaced by measured values after the visit |
-| 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
 
 ## Target experience (owner's mockup, 2026-11-13)
