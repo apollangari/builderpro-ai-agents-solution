@@ -211,3 +211,43 @@ public sealed class MeasureVisitTests
         }, slots);
     }
 }
+
+
+/// <summary>4b: when an automated call may go out, and which visit times it offers.</summary>
+public sealed class CallWindowTests
+{
+    private static readonly TimeZoneInfo Central = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+    private static DateTimeOffset Utc(int day, int hour) => new(2026, 11, day, hour, 0, 0, TimeSpan.Zero);   // Nov 13 2026 is a Friday
+
+    [Theory]
+    [InlineData(16, 15, "business", true)]    // Mon 9:00 Central
+    [InlineData(16, 23, "business", false)]   // Mon 17:00 Central
+    [InlineData(14, 16, "business", false)]   // Sat 10:00
+    [InlineData(14, 16, "weekends", true)]
+    [InlineData(16, 23, "evenings", true)]    // Mon 17:00
+    [InlineData(17, 2, "evenings", false)]    // Mon 20:00: quiet hours
+    [InlineData(17, 2, "anytime", false)]     // never after 20:00
+    [InlineData(16, 14, "anytime", false)]    // never before 9:00
+    public void Calls_only_inside_the_contact_hours_and_never_in_quiet_hours(int day, int hourUtc, string hours, bool allowed) =>
+        Assert.Equal(allowed, CallWindows.MayCall(Utc(day, hourUtc), hours, Central));
+
+    [Fact]
+    public void The_next_allowed_time_is_the_start_of_the_next_window()
+    {
+        Assert.Equal(Utc(13, 15), CallWindows.NextAllowed(Utc(13, 9), "business", Central));       // Fri 3:00 -> Fri 9:00
+        Assert.Equal(Utc(16, 15), CallWindows.NextAllowed(Utc(13, 23), "business", Central));      // Fri 17:00 -> Mon 9:00
+        Assert.Equal(Utc(14, 16), CallWindows.NextAllowed(Utc(13, 9), "weekends", Central));       // -> Sat 10:00
+    }
+
+    [Fact]
+    public void Offers_up_to_three_open_times_on_different_days_that_suit_the_hours()
+    {
+        var slots = new (DateTimeOffset, bool)[]
+        {
+            (Utc(14, 15), true), (Utc(16, 15), false), (Utc(16, 19), true), (Utc(17, 15), true), (Utc(17, 19), true), (Utc(18, 15), true), (Utc(19, 15), true),
+        };
+        Assert.Equal(new[] { Utc(16, 19), Utc(17, 15), Utc(18, 15) }, CallWindows.ProposeVisits(slots, "business", Central));
+        Assert.Equal(new[] { Utc(14, 15) }, CallWindows.ProposeVisits(slots, "weekends", Central));
+        Assert.Empty(CallWindows.ProposeVisits(slots, "evenings", Central));
+    }
+}

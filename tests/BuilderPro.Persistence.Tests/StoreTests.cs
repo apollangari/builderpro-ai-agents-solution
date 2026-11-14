@@ -432,3 +432,34 @@ public sealed class InstallStoreTests(PostgresFixture pg)
         Assert.Equal(new[] { "email", "sms" }, (await store.NotificationsAsync("t-acme", project, default)).Select(n => n.Channel));
     }
 }
+
+/// <summary>4b: automated-call consent and calls in Postgres.</summary>
+[Collection(PostgresCollection.Name)]
+public sealed class CallStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 13, 15, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Latest_consent_counts_one_open_call_per_project_and_an_opt_out_cancels_them_all()
+    {
+        var store = new PostgresCallStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);
+        await store.AppendConsentAsync(new CallConsent(0, "t-acme", "c-alice", true, "+1 555", "business", "email,sms", "v1", "project", T0), default);
+        await store.AppendConsentAsync(new CallConsent(0, "t-acme", "c-alice", false, "+1 555", "business", "email,sms", "v1", "call", T0.AddMinutes(1)), default);
+        Assert.Equal((false, "call"), ((await store.LatestConsentAsync("t-acme", "c-alice", default))!.Granted, (await store.LatestConsentAsync("t-acme", "c-alice", default))!.Source));
+        Assert.Null(await store.LatestConsentAsync("t-globex", "c-alice", default));
+
+        var p1 = Guid.NewGuid();
+        var call = new CallRequest(Guid.NewGuid(), "t-acme", p1, "c-alice", "scheduled", T0, 0, null, null, null, null, T0, T0);
+        await store.CreateAsync(call, default);
+        await Assert.ThrowsAnyAsync<Exception>(() => store.CreateAsync(call with { Id = Guid.NewGuid() }, default));   // one open call per project
+        Assert.Single(await store.DueAsync(T0, 10, default));
+        await store.UpdateAsync(call with { Status = "calling", ProposalsJson = "[\"2026-11-16T19:00:00+00:00\"]", Attempts = 1, UpdatedAt = T0 }, default);
+        Assert.Empty(await store.DueAsync(T0, 10, default));
+        Assert.Equal(1, await store.CancelOpenForCustomerAsync("t-acme", "c-alice", "opted_out", "pressed 9", T0, default));
+        var found = (await store.FindAsync(call.Id, default))!;
+        Assert.Equal(("opted_out", 1, "pressed 9"), (found.Status, found.Attempts, found.Note));
+        Assert.Contains("2026-11-16", found.ProposalsJson);
+    }
+}

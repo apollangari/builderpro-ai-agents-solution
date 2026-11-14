@@ -51,6 +51,7 @@ public sealed class FakeTenantLookup : ITenantLookup
         ["boss"] = TenantLookup.Ok("t-acme", ["quotes.read", "sales.report"]),          // acme sales manager
         ["gus"] = TenantLookup.Ok("t-globex", ["quotes.read", "quotes.write", "sales"]), // globex salesperson
         ["mia"] = TenantLookup.Ok("t-acme", ["quotes.read", "scheduling.write"]),         // 6b: acme measurer / scheduler
+        ["gina"] = TenantLookup.Ok("t-acme", ["quotes.read", "quotes.write"], "c-gina", ["guided"]),   // 4b: a store package without phone scheduling
     };
 
     public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) =>
@@ -82,6 +83,18 @@ public sealed class FakeContactChannels : IContactChannels
 
     public Task<IReadOnlyList<string>?> ForCustomerAsync(HttpContext http, string customerId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<string>?>(Down ? null : customerId == "c-alice" ? ["email", "sms"] : ["email"]);
+}
+
+/// <summary>Stands in for Identity's profile (4b): alice allows texts; abe has no phone.</summary>
+public sealed class FakeProfiles(FakeTenantLookup tenants) : IProfileReader
+{
+    public async Task<CustomerProfile?> MineAsync(HttpContext http, CancellationToken ct) =>
+        (await tenants.ResolveAsync(http, ct)).CustomerId switch
+        {
+            "c-alice" => new CustomerProfile("+1 555 010 0001", "business", "text"),
+            "c-abe" => new CustomerProfile(null, "business", "none"),
+            _ => new CustomerProfile("+1 555 010 0009", "anytime", "none"),
+        };
 }
 
 /// <summary>Stands in for the Catalog: per-tenant price lists, or "down".</summary>
@@ -142,6 +155,7 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public InMemoryDepositStore Deposits { get; } = new();
     public InMemoryVisitStore Visits { get; } = new();
     public InMemoryInstallStore Installs { get; } = new();
+    public InMemoryCallStore Calls { get; } = new();
     public FakeContactChannels Channels { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCustomerDirectory Customers { get; }
@@ -165,6 +179,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
         builder.UseSetting("Auth:Authority", "http://idp.test/realms/builderpro");
         builder.UseSetting("Auth:RequireHttpsMetadata", "false");
         builder.UseSetting("ConnectionStrings:quotesdb", "Host=unused.test;Database=quotesdb");
+        builder.UseSetting("Calls:WebhookSecret", "calls-test-secret");
+        builder.UseSetting("Calls:DispatchSeconds", "3600");
         foreach (var (k, v) in _settings) builder.UseSetting(k, v);
         builder.ConfigureTestServices(s =>
         {
@@ -176,6 +192,10 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IDepositStore>(Deposits);
             s.RemoveAll<IVisitStore>();
             s.AddSingleton<IVisitStore>(Visits);
+            s.RemoveAll<ICallStore>();
+            s.AddSingleton<ICallStore>(Calls);
+            s.RemoveAll<IProfileReader>();
+            s.AddSingleton<IProfileReader>(new FakeProfiles(Tenants));
             s.RemoveAll<IInstallStore>();
             s.AddSingleton<IInstallStore>(Installs);
             s.RemoveAll<IContactChannels>();
@@ -1462,5 +1482,129 @@ public sealed class PaymentRulesTests
         Assert.Throws<InvalidOperationException>(() => new StripeOptions { SecretKey = "sk_live_x", WebhookSecret = "whsec_x" }.Validate(production: false));
         Assert.Throws<InvalidOperationException>(() => new StripeOptions { SecretKey = "sk_test_x" }.Validate(production: false));
         new StripeOptions { SecretKey = "sk_test_x", WebhookSecret = "whsec_x" }.Validate(production: false);
+    }
+}
+
+
+/// <summary>4b: automated scheduling calls: consent first, contact hours, never books, opt-out stops everything.</summary>
+public sealed class AutomatedCallTests
+{
+    private static readonly object Answers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<ProjectDto> Paid(QuotesFactory f, string sub = "alice")
+    {
+        var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", Answers);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null);
+        var d = (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        await f.As(sub).PostAsync($"/api/deposits/{d.Id}/pay", null);
+        return p;
+    }
+
+    private static Task<HttpResponseMessage> OptIn(QuotesFactory f, Guid id, string sub = "alice", bool consent = true, string version = CallEndpoints.DefaultWordingVersion) =>
+        f.As(sub).PutAsJsonAsync($"/api/projects/{id}/automated-calls", new { consent, wordingVersion = version });
+
+    private static Task<HttpResponseMessage> Event(QuotesFactory f, Guid callId, object evt, string? secret = "calls-test-secret")
+    {
+        var body = JsonSerializer.Serialize(evt);
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/calls/{callId}/events") { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+        var t = f.Clock.GetUtcNow().ToUnixTimeSeconds();
+        if (secret is not null) request.Headers.Add("X-BuilderPro-Signature", $"t={t},v1={StripeSignature.Sign(t, body, secret)}");
+        return f.CreateClient().SendAsync(request);
+    }
+
+    private static async Task<AutomatedCallsDto> State(QuotesFactory f, Guid id, string sub = "alice") =>
+        (await f.As(sub).GetFromJsonAsync<AutomatedCallsDto>($"/api/projects/{id}/automated-calls"))!;
+
+    [Fact]
+    public async Task After_consent_the_call_waits_for_contact_hours_then_offers_times_a_person_and_a_way_to_stop()
+    {
+        using var f = new QuotesFactory();
+        var p = await Paid(f);
+        Assert.Equal(HttpStatusCode.OK, (await OptIn(f, p.Id)).StatusCode);
+        var dispatcher = f.Services.GetRequiredService<CallDispatcher>();
+        var phone = (SimulatedTelephony)f.Services.GetRequiredService<ITelephony>();
+
+        Assert.Equal(0, await dispatcher.RunOnceAsync(default));   // Fri 3:00 Central: outside business hours
+        var waiting = Assert.Single((await State(f, p.Id)).Calls);
+        Assert.Equal(new DateTimeOffset(2026, 11, 13, 15, 0, 0, TimeSpan.Zero), waiting.DueAt);   // Fri 9:00 Central
+
+        f.Clock.Advance(TimeSpan.FromHours(6));
+        Assert.Equal(1, await dispatcher.RunOnceAsync(default));
+        var placed = Assert.Single(phone.Placed);
+        Assert.Equal("+1 555 010 0001", placed.Phone);
+        Assert.Contains("automated assistant", placed.Script);
+        Assert.Contains("Press 0 to talk to a person", placed.Script);
+        Assert.Contains("Press 9 to stop", placed.Script);
+        Assert.Contains("nothing is booked until you do", placed.Script);
+        var call = Assert.Single((await State(f, p.Id)).Calls);
+        Assert.Equal(("calling", 3), (call.Status, call.Proposals.Count));
+        Assert.Equal(3, call.Proposals.Select(x => x.UtcDateTime.Date).Distinct().Count());   // different days
+
+        // Unsigned callbacks change nothing; pressing 2 sends a confirm link and books nothing.
+        Assert.Equal(HttpStatusCode.BadRequest, (await Event(f, call.Id, new { @event = "digits", digits = "2" }, secret: null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Event(f, call.Id, new { @event = "digits", digits = "2" })).StatusCode);
+        var chosen = Assert.Single((await State(f, p.Id)).Calls);
+        Assert.Equal(("slot_chosen", call.Proposals[1]), (chosen.Status, chosen.ChosenStart));
+        var sent = (await f.As("alice").GetFromJsonAsync<NotificationDto[]>($"/api/projects/{p.Id}/notifications"))!;
+        Assert.Equal(new[] { "email", "sms" }, sent.Select(n => n.Channel));   // alice allows texts
+        Assert.Contains($"/projects/{p.Id}?visit=", sent[0].Message);
+        Assert.Null((await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!.Visit);   // nothing booked
+    }
+
+    [Fact]
+    public async Task Pressing_9_or_turning_it_off_stops_every_call_and_is_recorded()
+    {
+        using var f = new QuotesFactory();
+        var a = await Paid(f);
+        await OptIn(f, a.Id);
+        f.Clock.Advance(TimeSpan.FromHours(6));
+        await f.Services.GetRequiredService<CallDispatcher>().RunOnceAsync(default);
+        var call = Assert.Single((await State(f, a.Id)).Calls);
+
+        await Event(f, call.Id, new { @event = "digits", digits = "9" });
+        var after = await State(f, a.Id);
+        Assert.Equal(("opted_out", false), (Assert.Single(after.Calls).Status, after.Consented));
+        Assert.Equal(("call", false), (f.Calls.Consents[^1].Source, f.Calls.Consents[^1].Granted));
+        Assert.Equal(0, await f.Services.GetRequiredService<CallDispatcher>().RunOnceAsync(default));
+
+        // Turning it back on needs the current wording; turning it off cancels at once.
+        Assert.Equal(HttpStatusCode.Conflict, (await OptIn(f, a.Id, version: "old")).StatusCode);
+        await OptIn(f, a.Id);
+        Assert.Contains((await State(f, a.Id)).Calls, c => c.Status == "scheduled");
+        await OptIn(f, a.Id, consent: false);
+        Assert.DoesNotContain((await State(f, a.Id)).Calls, c => c.Status is "scheduled" or "calling");
+    }
+
+    [Fact]
+    public async Task Only_the_customer_opts_in_with_a_phone_in_a_store_that_offers_it_and_a_booked_visit_cancels_the_call()
+    {
+        using var f = new QuotesFactory();
+        var p = await Paid(f);
+        var agent = f.As("alice");
+        agent.DefaultRequestHeaders.Add(AgentCall.Header, "concierge");
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PutAsJsonAsync($"/api/projects/{p.Id}/automated-calls", new { consent = true, wordingVersion = CallEndpoints.DefaultWordingVersion })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await OptIn(f, p.Id, "mia")).StatusCode);   // staff
+
+        var abe = await Paid(f, "abe");
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, (await OptIn(f, abe.Id, "abe")).StatusCode);   // no phone on file
+
+        var gina = await Paid(f, "gina");
+        var r = await OptIn(f, gina.Id, "gina");
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Contains("feature_not_included", await r.Content.ReadAsStringAsync());
+        Assert.False((await State(f, gina.Id, "gina")).Available);
+
+        await OptIn(f, p.Id);
+        await f.As("alice").PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero) });
+        f.Clock.Advance(TimeSpan.FromHours(6));
+        Assert.Equal(0, await f.Services.GetRequiredService<CallDispatcher>().RunOnceAsync(default));
+        Assert.Equal("cancelled", Assert.Single((await State(f, p.Id)).Calls).Status);
     }
 }
