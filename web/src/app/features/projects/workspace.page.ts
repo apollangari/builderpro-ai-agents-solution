@@ -204,7 +204,9 @@ import { StoreFeatures } from '../../core/tenant/store-features';
     .rail li { padding: .4rem .9rem; border-radius: 999px; border: 1px solid var(--bp-border); color: var(--bp-ink-muted); font-size: .9rem; min-height: 2rem; }
     .rail li.done { background: var(--bp-accent-soft); color: var(--bp-accent); border-color: transparent; }
     .rail li.current { background: var(--bp-accent); color: var(--bp-on-accent); border-color: var(--bp-accent); font-weight: 600; }
-    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(17rem, 1fr) minmax(0, 2.6fr); align-items: stretch; }
+    /* Owner: the chat sits on the RIGHT on every page (the work first, then the chat). */
+    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 2.6fr) minmax(17rem, 1fr); align-items: stretch; }
+    .layout > .chat { order: 2; }
     @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
     .layout.no-chat { grid-template-columns: 1fr; }
     .work { display: grid; gap: 1rem; }

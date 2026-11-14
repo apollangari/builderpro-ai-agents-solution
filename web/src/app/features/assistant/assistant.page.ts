@@ -129,7 +129,9 @@ const TOOL_LABELS: Record<string, string> = {
     </div>
   `,
   styles: `
-    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+    /* Owner: the chat sits on the RIGHT on every page (the draft first, then the chat). */
+    .layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
+    .layout > .chat { order: 2; }
     @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
     .chat { display: grid; gap: 1rem; }
     .log { display: grid; gap: .75rem; max-height: 60vh; overflow-y: auto; padding: .25rem; }

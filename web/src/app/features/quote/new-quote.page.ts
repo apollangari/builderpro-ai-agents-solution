@@ -178,7 +178,9 @@ type Step = 'zip' | 'type' | 'product';
       border: 1px solid var(--bp-border-strong); background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 600; cursor: pointer;
     }
     .zip-pill .change { color: var(--bp-accent); font-weight: 400; text-decoration: underline; }
-    .browse { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: stretch; }
+    /* Owner: the chat sits on the RIGHT on every page (catalog first, then the chat). */
+    .browse { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); align-items: stretch; }
+    .browse > bp-catalog-chat { order: 2; }
     @media (max-width: 900px) { .browse { grid-template-columns: 1fr; } }
     .browse.no-chat { grid-template-columns: 1fr; }
     .catalog { display: grid; gap: .75rem; }
