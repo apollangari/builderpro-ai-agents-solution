@@ -54,27 +54,31 @@ const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][
               }
             </fieldset>
             <p class="muted small">Split each run into rectangles. A standard countertop is 25 in deep.</p>
+            <!-- Big kitchens fit on one screen (final gaps): compact section cards in a wrapping grid, parts side by side. -->
+            <div class="parts">
             @for (part of parts; track part.key) {
               @if (part.key === 'countertop' || form().countertop[part.key].length) {
-              <fieldset [attr.data-testid]="'part-' + part.key">
+              <fieldset class="part" [attr.data-testid]="'part-' + part.key">
                 <legend>{{ part.label }}</legend>
+                <div class="sections">
                 @for (s of form().countertop[part.key]; track $index; let i = $index) {
-                  <div class="row section">
-                    <span class="muted">Section {{ i + 1 }}</span>
-                    <label>Width
-                      <input type="number" min="0" class="num" [value]="s.width.ft" (change)="setSection(part.key, i, 'ft', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + ' width, feet'" /> ft
-                      <input type="number" min="0" max="11" class="num" [value]="s.width.in" (change)="setSection(part.key, i, 'in', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + ' width, inches'" /> in
-                    </label>
-                    <label>{{ part.key === 'backsplash' ? 'Height' : 'Depth' }}
-                      <input type="number" min="0" class="num" [value]="s.depthIn" (change)="setSection(part.key, i, 'depth', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + (part.key === 'backsplash' ? ' height' : ' depth') + ', inches'" /> in
-                    </label>
-                    <button type="button" class="btn" (click)="removeSection(part.key, i)" [attr.aria-label]="'Remove ' + part.label + ' section ' + (i + 1)">Remove</button>
+                  <div class="section-card">
+                    <span class="num-badge" aria-hidden="true">{{ i + 1 }}</span>
+                    <span class="dims">
+                      <input type="number" min="0" class="num" [value]="s.width.ft" (change)="setSection(part.key, i, 'ft', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + ' width, feet'" /><span class="u">ft</span>
+                      <input type="number" min="0" max="11" class="num" [value]="s.width.in" (change)="setSection(part.key, i, 'in', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + ' width, inches'" /><span class="u">in</span>
+                      <span class="x" aria-hidden="true">×</span>
+                      <input type="number" min="0" class="num" [value]="s.depthIn" (change)="setSection(part.key, i, 'depth', $event)" [attr.aria-label]="part.label + ' section ' + (i + 1) + (part.key === 'backsplash' ? ' height' : ' depth') + ', inches'" /><span class="u">in {{ part.key === 'backsplash' ? 'high' : 'deep' }}</span>
+                    </span>
+                    <button type="button" class="remove" (click)="removeSection(part.key, i)" [attr.aria-label]="'Remove ' + part.label + ' section ' + (i + 1)" title="Remove">×</button>
                   </div>
                 }
-                <button type="button" class="btn" (click)="addSection(part.key)" [attr.data-testid]="'add-' + part.key">Add {{ part.label.toLowerCase() }} section</button>
+                </div>
+                <button type="button" class="btn add" (click)="addSection(part.key)" [attr.data-testid]="'add-' + part.key">+ Add {{ part.label.toLowerCase() }} section</button>
               </fieldset>
               }
             }
+            </div>
             <div class="row">
               @if (!form().countertop.island.length) { <button type="button" class="btn" (click)="addSection('island')" data-testid="add-island">Add an island or peninsula</button> }
               @if (!form().countertop.backsplash.length) { <button type="button" class="btn" (click)="addSection('backsplash')" data-testid="add-backsplash">Add a backsplash</button> }
@@ -235,14 +239,28 @@ const LAYOUTS: { id: string; label: string; runs: number[][]; islands: number[][
     legend { font-weight: 600; padding: 0 .35rem; }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
     .chips { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .layouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: .4rem; }
+    .layouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr)); gap: .35rem; }
+    /* Measure screen: parts side by side, sections as compact cards (a U-shaped kitchen with an island and a
+       backsplash fits without scrolling on a laptop screen). */
+    .parts { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); align-items: start; }
+    .part { align-content: start; }
+    .sections { display: grid; gap: .4rem; }
+    .section-card { display: flex; align-items: center; gap: .4rem; padding: .25rem .4rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); }
+    .num-badge { flex: none; width: 1.4rem; height: 1.4rem; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; font-weight: 700; background: var(--bp-accent-soft); color: var(--bp-accent); }
+    .dims { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap; min-width: 0; }
+    .dims .u { font-size: .8rem; color: var(--bp-ink-muted); margin-right: .2rem; }
+    .dims .x { color: var(--bp-ink-muted); margin: 0 .15rem; }
+    .section-card input.num { width: 3.6rem; min-height: 2.2rem; }
+    .remove { margin-left: auto; flex: none; width: 2rem; height: 2rem; border-radius: 50%; border: 1px solid var(--bp-border); background: none; cursor: pointer; font-size: 1.1rem; line-height: 1; color: var(--bp-ink-muted); }
+    .remove:hover { border-color: var(--bp-danger, #b3261e); color: var(--bp-danger, #b3261e); }
+    .add { justify-self: start; }
     .section { gap: .4rem .8rem; }
     fieldset { padding: .6rem .8rem; gap: .45rem; }
     .layout { display: grid; justify-items: center; gap: .25rem; padding: .4rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); cursor: pointer; font-size: .85rem; text-align: center; }
     .layout:hover { border-color: var(--bp-accent); }
     .layout.active { border-color: var(--bp-accent); box-shadow: 0 0 0 2px var(--bp-accent-soft); font-weight: 600; }
     .layout:has(input:focus-visible) { outline: 2px solid var(--bp-accent); outline-offset: 2px; }
-    .layout svg { width: 100%; max-width: 5.5rem; height: auto; }
+    .layout svg { width: 100%; max-width: 4.4rem; height: auto; }
     .layout .room { fill: var(--bp-surface); stroke: var(--bp-border-strong); stroke-width: .8; }
     .layout .run { fill: var(--bp-ink-muted); }
     .layout .isl { fill: var(--bp-accent); }
