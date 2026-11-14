@@ -61,6 +61,12 @@ public interface ITokenExchange
 
     /// <summary>A platform-API token for the same person, or null when the identity provider refused or failed.</summary>
     Task<string?> ForPlatformAsync(string callerToken, CancellationToken ct);
+
+    /// <summary>
+    /// 4a: a token for ANOTHER downstream (e.g. the scheduling agent, audience builderpro-scheduling), same person.
+    /// entraScope is the .default scope used instead of the audience under entra-obo.
+    /// </summary>
+    Task<string?> ForAudienceAsync(string callerToken, string audience, string? entraScope, CancellationToken ct);
 }
 
 public sealed class OAuthTokenExchange(HttpClient http, TokenExchangeOptions options, TimeProvider clock, ILogger<OAuthTokenExchange> log) : ITokenExchange
@@ -70,10 +76,13 @@ public sealed class OAuthTokenExchange(HttpClient http, TokenExchangeOptions opt
 
     public bool Enabled => options.Enabled;
 
-    public async Task<string?> ForPlatformAsync(string callerToken, CancellationToken ct)
+    public Task<string?> ForPlatformAsync(string callerToken, CancellationToken ct) =>
+        ForAudienceAsync(callerToken, options.Audience, options.Scope, ct);
+
+    public async Task<string?> ForAudienceAsync(string callerToken, string audience, string? entraScope, CancellationToken ct)
     {
-        if (!IsTokenShaped(callerToken)) return null;
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(callerToken)));
+        if (!IsTokenShaped(callerToken) || string.IsNullOrWhiteSpace(audience)) return null;
+        var key = audience + ":" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(callerToken)));
         var now = clock.GetUtcNow();
         if (_cache.TryGetValue(key, out var hit) && hit.Until > now) return hit.Token;
 
@@ -83,7 +92,7 @@ public sealed class OAuthTokenExchange(HttpClient http, TokenExchangeOptions opt
             form["grant_type"] = "urn:ietf:params:oauth:grant-type:jwt-bearer";
             form["requested_token_use"] = "on_behalf_of";
             form["assertion"] = callerToken;
-            form["scope"] = options.Scope!;
+            form["scope"] = entraScope ?? $"api://{audience}/.default";
         }
         else
         {
@@ -91,8 +100,8 @@ public sealed class OAuthTokenExchange(HttpClient http, TokenExchangeOptions opt
             form["subject_token"] = callerToken;
             form["subject_token_type"] = "urn:ietf:params:oauth:token-type:access_token";
             form["requested_token_type"] = "urn:ietf:params:oauth:token-type:access_token";
-            form["audience"] = options.Audience;
-            if (!string.IsNullOrWhiteSpace(options.Scope)) form["scope"] = options.Scope;
+            form["audience"] = audience;
+            if (!string.IsNullOrWhiteSpace(entraScope)) form["scope"] = entraScope;
         }
 
         try
@@ -135,6 +144,7 @@ public sealed class NoTokenExchange : ITokenExchange
 {
     public bool Enabled => false;
     public Task<string?> ForPlatformAsync(string callerToken, CancellationToken ct) => Task.FromResult<string?>(null);
+    public Task<string?> ForAudienceAsync(string callerToken, string audience, string? entraScope, CancellationToken ct) => Task.FromResult<string?>(null);
 }
 
 /// <summary>

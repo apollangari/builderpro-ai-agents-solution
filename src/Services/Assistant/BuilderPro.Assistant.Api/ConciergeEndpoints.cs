@@ -155,7 +155,7 @@ public static class ConciergeEndpoints
         if (request.Catalog is { } catalog) return await CatalogChatAsync(catalog, turns, api, chat.Client, ledger, log, ct);
         var drafts = new DraftLedger();
         var helpOnly = !concierge;
-        var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId, helpOnly);
+        var tools = new ConciergeTools(api, ledger, drafts, request.ProjectId, helpOnly, http.RequestServices.GetService<ISchedulingAgent>());
         var instructions = helpOnly ? HelpInstructions
             : request.ProjectId is null ? Instructions : Instructions + "\n" + ProjectInstructions;
         var agent = new ChatClientAgent(chat.Client, instructions, "builderpro-concierge", "Guided quote concierge", tools.All());

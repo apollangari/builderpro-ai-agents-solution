@@ -46,7 +46,8 @@ public sealed class DraftLedger
 /// Feet + inches are converted to inches here, in code, so the model never does arithmetic.
 /// Every result goes through the turn's PriceLedger first (the price guard).
 /// </summary>
-public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts, Guid? projectId = null, bool helpOnly = false)
+public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLedger drafts, Guid? projectId = null, bool helpOnly = false,
+    ISchedulingAgent? scheduling = null)
 {
     /// <summary>Set when a project tool changed the project this turn (the page re-reads it).</summary>
     public bool ProjectChanged { get; private set; }
@@ -77,7 +78,15 @@ public sealed class ConciergeTools(IPlatformApi api, PriceLedger ledger, DraftLe
             AIFunctionFactory.Create(GetProjectStepsAsync, "get_project_steps"),
             AIFunctionFactory.Create(SaveAnswersAsync, "save_answers"),
             AIFunctionFactory.Create(IssueQuoteAsync, "issue_quote"),
+            .. (scheduling?.Enabled == true ? [AIFunctionFactory.Create(ProposeVisitTimesAsync, "propose_visit_times")] : Array.Empty<AITool>()),
         ];
+
+    [Description("After the deposit is paid: asks the scheduling agent for measure-visit times that fit the customer's contact hours (up to 3, on different days). " +
+                 "It never books: tell the customer to confirm a time on the project page.")]
+    public async Task<JsonElement> ProposeVisitTimesAsync(CancellationToken ct = default) =>
+        projectId is Guid id && scheduling is not null
+            ? await scheduling.ProposeVisitTimesAsync(id, ct)
+            : JsonSerializer.SerializeToElement(new { error = 400, detail = "no project" });
 
     [Description("Saves the project's product, measurements and answers, and returns the project re-priced by the store's pricing engine (preview with lines, total and missing steps). Send the full set each time: product sku, all measurements, all answers so far.")]
     public async Task<JsonElement> SaveAnswersAsync(

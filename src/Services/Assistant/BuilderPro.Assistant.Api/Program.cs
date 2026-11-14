@@ -36,6 +36,18 @@ else
     builder.Services.AddSingleton<ITokenExchange, NoTokenExchange>();
 }
 
+// 4a: the Python scheduling agent over A2A (on-behalf-of with audience builderpro-scheduling).
+var scheduling = builder.Configuration.GetSection("Assistant:SchedulingAgent").Get<SchedulingAgentOptions>() ?? new SchedulingAgentOptions();
+if (scheduling.Enabled)
+{
+    builder.Services.AddSingleton(scheduling);
+    builder.Services.AddHttpClient<ISchedulingAgent, A2ASchedulingAgent>(c => c.Timeout = TimeSpan.FromSeconds(30));
+}
+else
+{
+    builder.Services.AddSingleton<ISchedulingAgent, NoSchedulingAgent>();
+}
+
 // 3c: the same catalog/quote tools for any MCP client (Streamable HTTP, stateless: each call is one
 // HTTP request carrying the customer's own token, so the tools act exactly as that customer).
 builder.Services.AddMcpServer(o => o.ServerInfo = new() { Name = "builderpro", Version = "1.0" })
