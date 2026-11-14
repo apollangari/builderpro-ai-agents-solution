@@ -76,13 +76,18 @@ public sealed class PlatformTools(IPlatformApi api, PriceLedger ledger)
     public async Task<JsonElement> ListCategoriesAsync(CancellationToken ct = default) =>
         Record("list_categories", await api.GetAsync("/api/catalog/categories", ct));
 
-    [Description("Finds products this store sells. Returns SKU, name, unit, list price, currency and attributes. Optionally filter by category id and/or words in the name.")]
+    [Description("Finds products this store sells. Returns SKU, name, unit, price per unit for the ZIP (before tax), currency and attributes. Pass the customer's ZIP: prices differ by area. Optionally filter by category id and/or words in the name.")]
     public async Task<JsonElement> SearchProductsAsync(
         [Description("Category id from list_categories, e.g. countertops, roofing, sheds. Omit for all.")] string? category = null,
         [Description("Words to look for in the product name or SKU, e.g. quartz, white, cedar. Omit for all.")] string? query = null,
+        [Description("The customer's project ZIP / postal code. Prices are for that area; only products sold there are returned.")] string? zip = null,
         CancellationToken ct = default)
     {
-        var path = category is null ? "/api/catalog/products" : $"/api/catalog/products?category={Uri.EscapeDataString(category)}";
+        // Gap fix (2n-a): prices depend on the ZIP's price zone, so the assistant asks for the customer's area.
+        var filters = new List<string>();
+        if (category is not null) filters.Add($"category={Uri.EscapeDataString(category)}");
+        if (!string.IsNullOrWhiteSpace(zip)) filters.Add($"zip={Uri.EscapeDataString(zip.Trim())}");
+        var path = "/api/catalog/products" + (filters.Count > 0 ? "?" + string.Join("&", filters) : "");
         var all = await api.GetAsync(path, ct);
         if (all.ValueKind != JsonValueKind.Array) return Record("search_products", all);
 
@@ -99,11 +104,13 @@ public sealed class PlatformTools(IPlatformApi api, PriceLedger ledger)
     public async Task<JsonElement> EstimateRoofAsync(decimal footprintSqFt, decimal pitchRise, decimal wastePercent = 10, decimal eavesAndRakesFt = 0, CancellationToken ct = default) =>
         Record("estimate_roof", await api.PostAsync("/api/quotes/estimators/roof", new { footprintSqFt, pitchRise, wastePercent, eavesAndRakesFt }, ct));
 
-    [Description("Prices products at given quantities, each on its own, with this store's list prices and tax. Use this for ANY price or total you mention; never calculate money yourself. Up to 6 items.")]
+    [Description("Prices products at given quantities, each on its own, with this store's prices for the customer's ZIP and tax. Use this for ANY price or total you mention; never calculate money yourself. Up to 6 items.")]
     public async Task<JsonElement> PriceProductsAsync(
         [Description("SKUs and quantities, e.g. [{\"sku\":\"CT-QTZ-CALACATTA\",\"quantity\":30}]")] PriceItem[] items,
+        [Description("The customer's project ZIP / postal code; prices are for that area.")] string? zip = null,
         CancellationToken ct = default) =>
-        Record("price_products", await api.PostAsync("/api/quotes/estimates", new { items }, ct));
+        Record("price_products", await api.PostAsync("/api/quotes/estimates",
+            string.IsNullOrWhiteSpace(zip) ? new { items, zip = (string?)null } : new { items, zip = (string?)zip.Trim() }, ct));
 
     private JsonElement Record(string tool, JsonElement result)
     {

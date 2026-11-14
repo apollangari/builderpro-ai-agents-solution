@@ -20,7 +20,7 @@ discover --(product)--> configure --(Get my quote)--> quote --(Accept, customer 
 | `POST /api/projects` | customer | start at a served ZIP |
 | `PUT /api/projects/{id}/answers` | customer, concierge | save product + measurements + answers; answer = the project re-priced |
 | `POST /api/projects/{id}/quote` | customer, concierge | issue `Q-1001`, `Q-1002`... per store (advisory lock), valid 14 days |
-| `POST /api/projects/{id}/accept` | **customer only** | hold the price; stage -> deposit; answers locked |
+| `POST /api/projects/{id}/accept` | **customer only** | record the customer's yes; stage -> deposit. **Doesn't hold the price**: the 5 % deposit does, and then the answers lock (6a) |
 
 Accept refuses: staff (`customer_only`), an outdated quote (`quote_outdated`: answers changed since
 it was issued), an expired one (`quote_expired`), and **any agent** (`agent_cannot_accept`).

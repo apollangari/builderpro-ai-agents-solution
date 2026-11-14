@@ -6,7 +6,8 @@ using Microsoft.Extensions.AI;
 namespace BuilderPro.Assistant.Api;
 
 public sealed record ChatTurn(string Role, string Content);
-public sealed record ChatRequest(ChatTurn[]? Messages);
+/// <summary>AccountZip: the customer's ZIP from their account (the page sends it), so prices are for their area.</summary>
+public sealed record ChatRequest(ChatTurn[]? Messages, string? AccountZip = null);
 public sealed record ChatReply(string Reply, bool Guarded, IReadOnlyList<string> ToolsUsed);
 
 public static class AssistantEndpoints
@@ -30,6 +31,9 @@ public static class AssistantEndpoints
         - Catalog prices are per unit and BEFORE tax. Only price_products returns tax and totals.
           Never say that a unit price includes tax.
         - For roofs, call estimate_roof for quantities first, then price_products with those quantities.
+        - Prices depend on the area. Always pass the customer's ZIP to search_products and price_products.
+          The context gives the ZIP from their account; if it's unknown, ask for the project ZIP before
+          quoting any price.
         - You are read-only: you cannot create or change quotes, place orders, book visits or promise
           delivery dates or discounts. Never offer to. To save a quote, tell the customer to use
           "Add to quote" in the catalog.
@@ -66,7 +70,10 @@ public static class AssistantEndpoints
 
         var ledger = new PriceLedger();
         var agent = new ChatClientAgent(chat.Client, Instructions, "builderpro-assistant", "Read-only product assistant", new PlatformTools(api, ledger).All());
-        var messages = turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)).ToList();
+        if (request.AccountZip is { Length: > 12 }) return Problem(StatusCodes.Status400BadRequest, "invalid_chat", "The account ZIP is too long.");
+        var zip = string.IsNullOrWhiteSpace(request.AccountZip) ? "unknown (ask before quoting a price)" : request.AccountZip.Trim();
+        var messages = new List<ChatMessage> { new(ChatRole.System, $"Customer's project ZIP: {zip}.") };
+        messages.AddRange(turns.Select(t => new ChatMessage(t.Role == "user" ? ChatRole.User : ChatRole.Assistant, t.Content)));
 
         var (reply, failed) = await RunAgentAsync(agent, messages, log, ct);
         if (failed is not null) return failed;

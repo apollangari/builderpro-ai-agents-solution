@@ -79,6 +79,9 @@ public static class ConciergeEndpoints
           so far every time; it saves them and returns the project re-priced. Report totals exactly as returned.
         - When nothing is missing, you may call issue_quote: it gives the quote a number and a validity date.
         - You can NEVER accept the quote. Tell the customer to review it and press "Accept quote" themselves.
+        - Accepting does NOT hold the price. The price is held only once the customer pays the deposit
+          (5 % unless the project says otherwise) on the project page; until then it can change or expire.
+          You never pay: say where the button is.
         """;
 
     /// <summary>Catalog mode (owner request): help pick a product of one type in one ZIP by filtering what's shown.</summary>
