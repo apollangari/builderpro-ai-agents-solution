@@ -84,6 +84,25 @@ describe('DeskPage (3e)', () => {
     await settle();
     expect(el.querySelector('[data-testid="tab-chats"]')).toBeNull();   // no support.chat: no Chats tab
 
+    // Different sizes on site: the form starts from the quoted sizes; the saved body is what was measured.
+    el.querySelector<HTMLButtonElement>('[data-testid="measured-edit"]')!.click();
+    await settle();
+    const width = el.querySelector<HTMLInputElement>('[data-testid="measured-form"] input')!;
+    expect(width.value).toBe('120');
+    width.value = '132';
+    width.dispatchEvent(new Event('change'));
+    await settle();
+    el.querySelector<HTMLButtonElement>('[data-testid="measured-save"]')!.click();
+    await settle();
+    const measured = http.expectOne((r) => r.url === '/api/projects/p1/visit/measured' && r.method === 'POST');
+    expect(measured.request.body).toEqual({ measurements: { countertop: { layout: null, countertop: [{ widthIn: 132, depthIn: 25 }], island: [], backsplash: [] } } });
+    measured.flush({});
+    await settle();
+    http.expectOne('/api/staff/queue').flush([
+      { projectId: 'p2', title: 'Bath', customerId: 'c-abe', stage: 'install', kind: 'install', detail: 'Installation scheduled', visitStart: null, installStep: 'scheduled', callId: null, measurements: null, updatedAt: '2026-11-14T10:00:00Z' },
+    ]);
+    await settle();
+
     el.querySelector<HTMLButtonElement>('[data-testid="install-next"]')!.click();
     await settle();
     const step = http.expectOne((r) => r.url === '/api/projects/p2/install' && r.method === 'POST');

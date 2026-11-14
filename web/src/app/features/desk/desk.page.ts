@@ -120,6 +120,7 @@ const NEXT_STEP: Record<string, { step: string; label: string }> = {
                 <div class="actions">
                   @switch (q.kind) {
                     @case ('measure') {
+                      <button type="button" class="btn" (click)="editMeasured(q)" [disabled]="work.isLoading()" data-testid="measured-edit">Enter measured sizes</button>
                       <button type="button" class="btn btn-primary" (click)="measuredAsQuoted(q)" [disabled]="work.isLoading()" data-testid="measured-as-quoted">Measured as quoted</button>
                     }
                     @case ('install') {
@@ -136,12 +137,33 @@ const NEXT_STEP: Record<string, { step: string; label: string }> = {
                   }
                 </div>
               </li>
+              @if (editing()?.projectId === q.projectId && q.kind === 'measure') {
+                <li class="measure-form" data-testid="measured-form">
+                  <p class="small">Sizes measured on site, in inches. The job is re-priced at the held unit prices; if the total changes, the customer confirms it.</p>
+                  @for (part of editing()!.parts; track part.key; let pi = $index) {
+                    <fieldset>
+                      <legend>{{ part.label }}</legend>
+                      @for (sec of part.sections; track $index; let si = $index) {
+                        <span class="dims">
+                          <span class="muted small">{{ si + 1 }}</span>
+                          <input type="number" min="0" [value]="sec.widthIn" (change)="setMeasured(pi, si, 'widthIn', $event)" [attr.aria-label]="part.label + ' ' + (si + 1) + ' width, inches'" /> in ×
+                          <input type="number" min="0" [value]="sec.depthIn" (change)="setMeasured(pi, si, 'depthIn', $event)" [attr.aria-label]="part.label + ' ' + (si + 1) + ' depth, inches'" /> in
+                        </span>
+                      }
+                    </fieldset>
+                  }
+                  <div class="actions">
+                    <button type="button" class="btn" (click)="editing.set(null)">Cancel</button>
+                    <button type="button" class="btn btn-primary" (click)="saveMeasured()" [disabled]="work.isLoading()" data-testid="measured-save">Record these sizes</button>
+                  </div>
+                </li>
+              }
             } @empty {
               <li class="muted">Nothing waiting. Nice.</li>
             }
           </ul>
           @if (work.error()) { <div class="warning" role="alert"><span>{{ describe(work.error()) }}</span></div> }
-          <p class="muted small">Different sizes on site? Record them through the API for now; a measurement form here comes next.</p>
+
         </section>
       }
     </div>
@@ -171,6 +193,10 @@ const NEXT_STEP: Record<string, { step: string; label: string }> = {
     .queue { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
     .queue li { display: flex; justify-content: space-between; gap: 1rem; align-items: center; padding: .7rem .8rem; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); }
     .queue p { margin: .2rem 0 0; }
+    .queue li.measure-form { display: grid; gap: .5rem; justify-content: stretch; background: var(--bp-surface-muted); }
+    .measure-form fieldset { border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); padding: .4rem .7rem; display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+    .measure-form .dims { display: inline-flex; align-items: center; gap: .3rem; }
+    .measure-form input { width: 4.5rem; min-height: 2.2rem; padding: 0 .4rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong); font: inherit; }
     .small { font-size: .85rem; }
   `,
 })
@@ -251,6 +277,36 @@ export class DeskPage {
 
   protected next(q: QueueItem) {
     return q.installStep ? (NEXT_STEP[q.installStep] ?? null) : null;
+  }
+
+  /** 6b: different sizes on site. Countertop jobs: each part's sections in inches, starting from what was quoted. */
+  protected readonly editing = signal<{ projectId: string; layout: string | null; parts: { key: string; label: string; sections: { widthIn: number; depthIn: number }[] }[] } | null>(null);
+
+  protected editMeasured(q: QueueItem): void {
+    const ct = ((q.measurements as { countertop?: Record<string, unknown> } | null)?.countertop ?? {}) as Record<string, unknown>;
+    const labels: Record<string, string> = { countertop: 'Countertop', island: 'Island or peninsula', backsplash: 'Backsplash' };
+    const parts = Object.keys(labels)
+      .map((key) => ({ key, label: labels[key], sections: ((ct[key] as { widthIn: number; depthIn: number }[] | undefined) ?? []).map((s) => ({ widthIn: s.widthIn, depthIn: s.depthIn })) }))
+      .filter((p) => p.sections.length > 0);
+    this.editing.set({ projectId: q.projectId, layout: (ct['layout'] as string | undefined) ?? null, parts });
+  }
+
+  protected setMeasured(part: number, section: number, field: 'widthIn' | 'depthIn', event: Event): void {
+    const value = Number((event.target as HTMLInputElement).value);
+    this.editing.update((e) => {
+      if (!e) return e;
+      const parts = e.parts.map((p, i) => i !== part ? p : { ...p, sections: p.sections.map((s, j) => (j === section ? { ...s, [field]: value } : s)) });
+      return { ...e, parts };
+    });
+  }
+
+  protected saveMeasured(): void {
+    const e = this.editing();
+    if (!e) return;
+    const countertop: Record<string, unknown> = { layout: e.layout, countertop: [], island: [], backsplash: [] };
+    for (const p of e.parts) countertop[p.key] = p.sections;
+    this.workRequest.set({ url: `/api/projects/${e.projectId}/visit/measured`, body: { measurements: { countertop } }, n: ++this.n });
+    this.editing.set(null);
   }
 
   protected measuredAsQuoted(q: QueueItem): void {
