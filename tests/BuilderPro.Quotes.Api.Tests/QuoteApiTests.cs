@@ -1608,3 +1608,44 @@ public sealed class AutomatedCallTests
         Assert.Equal("cancelled", Assert.Single((await State(f, p.Id)).Calls).Status);
     }
 }
+
+
+/// <summary>3e: the store desk's work queue.</summary>
+public sealed class StaffQueueTests
+{
+    private static readonly object Answers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    [Fact]
+    public async Task Staff_see_visits_to_measure_installs_to_move_on_and_calls_that_need_a_person()
+    {
+        using var f = new QuotesFactory();
+        async Task<Guid> Paid(string sub)
+        {
+            var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+            await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", Answers);
+            await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+            await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null);
+            var d = (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+            await f.As(sub).PostAsync($"/api/deposits/{d.Id}/pay", null);
+            return p.Id;
+        }
+        var toMeasure = await Paid("alice");
+        await f.As("alice").PostAsJsonAsync($"/api/projects/{toMeasure}/visit", new { start = new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero) });
+        var toInstall = await Paid("abe");
+        await f.As("abe").PostAsJsonAsync($"/api/projects/{toInstall}/visit", new { start = new DateTimeOffset(2026, 11, 14, 19, 0, 0, TimeSpan.Zero) });
+        await f.As("mia").PostAsJsonAsync($"/api/projects/{toInstall}/visit/measured", new { measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } } });
+
+        var queue = (await f.As("mia").GetFromJsonAsync<QueueItemDto[]>("/api/staff/queue"))!;
+        Assert.Contains(queue, q => q.ProjectId == toMeasure && q.Kind == "measure" && q.VisitStart is not null);
+        Assert.Contains(queue, q => q.ProjectId == toInstall && q.Kind == "install" && q.InstallStep == null);
+        Assert.Equal(JsonValueKind.Object, queue.First(q => q.ProjectId == toMeasure).Measurements.ValueKind);   // what was quoted, to start from
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("alice").GetAsync("/api/staff/queue")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").GetAsync("/api/staff/queue")).StatusCode);   // staff without scheduling.write
+    }
+}

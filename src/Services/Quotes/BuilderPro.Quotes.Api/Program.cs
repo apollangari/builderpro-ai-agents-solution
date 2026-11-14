@@ -84,6 +84,7 @@ app.MapProjectEndpoints();       // 2n-f
 app.MapDepositEndpoints();       // 6a
 app.MapSalesEndpoints();         // 1i
 app.MapCallEventEndpoints();     // 4b: telephony provider callback (signed)
+app.MapStaffQueue();             // 3e: the store desk's work queue
 
 app.Run();
 
