@@ -21,7 +21,7 @@ public interface IPlatformApi
 /// pick), so every tool sees exactly what the signed-in customer may see: same tenant isolation,
 /// same scopes. The agent has no credentials of its own.
 /// </summary>
-public sealed class HttpPlatformApi(IHttpClientFactory factory, IHttpContextAccessor accessor) : IPlatformApi
+public sealed class HttpPlatformApi(IHttpClientFactory factory, IHttpContextAccessor accessor, ITokenExchange exchange) : IPlatformApi
 {
     public Task<JsonElement> GetAsync(string path, CancellationToken ct) => SendAsync(new HttpRequestMessage(HttpMethod.Get, path), ct);
 
@@ -34,7 +34,17 @@ public sealed class HttpPlatformApi(IHttpClientFactory factory, IHttpContextAcce
     private async Task<JsonElement> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var http = accessor.HttpContext ?? throw new InvalidOperationException("No caller.");
-        if (AuthenticationHeaderValue.TryParse(http.Request.Headers[HeaderNames.Authorization], out var auth)) request.Headers.Authorization = auth;
+        if (AuthenticationHeaderValue.TryParse(http.Request.Headers[HeaderNames.Authorization], out var auth) && auth.Parameter is not null)
+        {
+            if (exchange.Enabled)
+            {
+                // On-behalf-of (3c): a token for the platform API for the same person; the caller's own token stays here.
+                var obo = await exchange.ForPlatformAsync(auth.Parameter, ct);
+                if (obo is null) return JsonSerializer.SerializeToElement(new { error = 401, detail = "token_exchange_failed" });
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", obo);
+            }
+            else request.Headers.Authorization = auth;   // development fallback only (passthrough)
+        }
         var pick = http.Request.Headers[TenantHint.Header].ToString();
         if (ClaimsNormalizer.IsIdentifier(pick)) request.Headers.Add(TenantHint.Header, pick);
         // Every call an agent's tool makes is marked: commit actions (accept, pay, book) refuse it (2n-f).

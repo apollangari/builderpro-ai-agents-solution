@@ -30,6 +30,8 @@ var mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.33")
 var keycloakAdminPassword = builder.AddParameter("keycloak-admin-password", value: "admin", secret: true);
 // The Identity service's own Keycloak client (profile edits, password changes). Dev default; set a real one in user secrets.
 var identityClientSecret = builder.AddParameter("keycloak-identity-client-secret", value: "builderpro-identity-dev-secret", secret: true);
+// 3c: the Assistant's client for on-behalf-of token exchange. Dev default; set a real one in user secrets.
+var assistantClientSecret = builder.AddParameter("keycloak-assistant-client-secret", value: "builderpro-assistant-dev-secret", secret: true);
 
 var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.4")
     .WithArgs("start-dev", "--import-realm")
@@ -37,6 +39,7 @@ var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26
     .WithEnvironment("KC_BOOTSTRAP_ADMIN_PASSWORD", keycloakAdminPassword)
     .WithEnvironment("KC_HEALTH_ENABLED", "true")
     .WithEnvironment("IDENTITY_CLIENT_SECRET", identityClientSecret)   // read by the realm import
+    .WithEnvironment("ASSISTANT_CLIENT_SECRET", assistantClientSecret) // 3c: on-behalf-of client
     // Realm (clients, test users, tenant mapper) imported on first start.
     .WithBindMount("../../../infra/keycloak/realms", "/opt/keycloak/data/import", isReadOnly: true)
     // 1e: Navy & Sand login, sign-up and password pages (CSS on top of keycloak.v2).
@@ -180,6 +183,11 @@ var assistant = builder.AddProject<Projects.BuilderPro_Assistant_Api>("assistant
     .WithReference(quotes)
     .WithEnvironment("Auth__Authority", realmUrl)
     .WithEnvironment("Auth__RequireHttpsMetadata", "false")
+    // 3c: tokens here are FOR the Assistant; it calls the platform on-behalf-of the caller (token exchange).
+    .WithEnvironment("Auth__Audience", "builderpro-assistant")
+    .WithEnvironment("Assistant__TokenExchange__Enabled", "true")
+    .WithEnvironment("Assistant__TokenExchange__TokenUrl", ReferenceExpression.Create($"{realmUrl}/protocol/openid-connect/token"))
+    .WithEnvironment("Assistant__TokenExchange__ClientSecret", assistantClientSecret)
     .WithHttpHealthCheck("/health")
     .WaitFor(catalog)
     .WaitFor(quotes);

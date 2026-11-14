@@ -20,6 +20,22 @@ builder.Services.AddHttpClient("catalog", c => c.BaseAddress = new Uri("http://c
 builder.Services.AddHttpClient("quotes", c => c.BaseAddress = new Uri("http://quotes"));
 builder.Services.AddScoped<IPlatformApi, HttpPlatformApi>();
 
+// 3c: on-behalf-of. Tokens arriving here are FOR the Assistant (Auth:Audience = builderpro-assistant);
+// tools call the platform with an exchanged token for the same person (OnBehalfOf.cs).
+var exchange = builder.Configuration.GetSection("Assistant:TokenExchange").Get<TokenExchangeOptions>() ?? new TokenExchangeOptions();
+if (exchange.Enabled)
+{
+    exchange.Validate(allowHttpForLocalDev: !builder.Environment.IsProduction());
+    builder.Services.AddSingleton(exchange);
+    // A dedicated client: no caller credentials, no redirects, a short timeout.
+    builder.Services.AddHttpClient<ITokenExchange, OAuthTokenExchange>(c => c.Timeout = TimeSpan.FromSeconds(10))
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+}
+else
+{
+    builder.Services.AddSingleton<ITokenExchange, NoTokenExchange>();
+}
+
 // 3c: the same catalog/quote tools for any MCP client (Streamable HTTP, stateless: each call is one
 // HTTP request carrying the customer's own token, so the tools act exactly as that customer).
 builder.Services.AddMcpServer(o => o.ServerInfo = new() { Name = "builderpro", Version = "1.0" })
@@ -37,6 +53,7 @@ builder.Services.AddSingleton<IAssistantChatClient>(sp => new AssistantChatClien
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseMcpAuthChallenge();   // 3c: 401s from MCP say where to get a token
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -44,6 +61,7 @@ app.MapDefaultEndpoints();
 app.MapAssistantEndpoints();
 app.MapConciergeEndpoints();   // 3b
 app.MapMcp("/api/assistant/mcp").RequireAuthorization();   // 3c: MCP, signed-in callers only
+app.MapMcpAuthMetadata();                                    // 3c: OAuth protected-resource metadata
 
 app.Run();
 
