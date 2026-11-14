@@ -178,7 +178,17 @@ public static class McpAuthMetadata
         await next();
     });
 
-    /// <summary>Where clients reach us (the gateway); configurable because the service itself sits behind it.</summary>
-    private static string PublicBase(HttpContext http, IConfiguration config) =>
-        (config["Assistant:PublicBaseUrl"] ?? $"{http.Request.Scheme}://{http.Request.Host}").TrimEnd('/');
+    /// <summary>
+    /// Where clients reach us: Assistant:PublicBaseUrl when set (production), else the gateway's address as
+    /// YARP forwards it (X-Forwarded-Proto/Host), else our own. Only used in discovery documents.
+    /// </summary>
+    private static string PublicBase(HttpContext http, IConfiguration config)
+    {
+        if (config["Assistant:PublicBaseUrl"] is { Length: > 0 } configured) return configured.TrimEnd('/');
+        var host = http.Request.Headers["X-Forwarded-Host"].ToString().Split(',')[0].Trim();
+        var proto = http.Request.Headers["X-Forwarded-Proto"].ToString().Split(',')[0].Trim();
+        if (host.Length > 0 && Uri.CheckHostName(host.Split(':')[0]) != UriHostNameType.Unknown && proto is "http" or "https")
+            return $"{proto}://{host}";
+        return $"{http.Request.Scheme}://{http.Request.Host}";
+    }
 }

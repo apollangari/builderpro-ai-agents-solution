@@ -57,4 +57,20 @@ public sealed class McpTests
         var (status, _) = await Rpc(f.CreateClient(), "tools/list");
         Assert.Equal(HttpStatusCode.Unauthorized, status);
     }
+
+    [Fact]
+    public async Task MCP_clients_discover_the_authorization_server_from_a_401()
+    {
+        using var f = new AssistantFactory();
+        var client = f.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Forwarded-Host", "gateway.test");
+        client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
+        var r = await client.PostAsync("/api/assistant/mcp", new StringContent("{}", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
+        Assert.Contains(r.Headers.WwwAuthenticate, h => h.Parameter == "resource_metadata=\"https://gateway.test/.well-known/oauth-protected-resource/api/assistant/mcp\"");
+
+        var meta = JsonDocument.Parse(await client.GetStringAsync("/.well-known/oauth-protected-resource/api/assistant/mcp")).RootElement;
+        Assert.Equal("https://gateway.test/api/assistant/mcp", meta.GetProperty("resource").GetString());
+        Assert.Equal("http://idp.test/realms/builderpro", meta.GetProperty("authorization_servers")[0].GetString());
+    }
 }
