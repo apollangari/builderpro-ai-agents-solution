@@ -25,7 +25,7 @@ const product = (sku: string, category: string, listPrice: number) => ({
 describe('NewQuotePage (one step per screen)', () => {
   let http: HttpTestingController;
 
-  function setup(postalCode: string | null) {
+  function setup(postalCode: string | null, forCustomer?: { for: string; name: string; zip: string }) {
     TestBed.configureTestingModule({
       imports: [NewQuotePage],
       providers: [
@@ -38,6 +38,7 @@ describe('NewQuotePage (one step per screen)', () => {
     });
     http = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(NewQuotePage);
+    if (forCustomer) for (const [k, v] of Object.entries(forCustomer)) fixture.componentRef.setInput(k, v);
     return fixture.nativeElement as HTMLElement;
   }
 
@@ -97,6 +98,23 @@ describe('NewQuotePage (one step per screen)', () => {
     save.flush({ id: 'p1' });
     await settle();
     expect(navigate).toHaveBeenCalledWith(['/projects', 'p1']);
+  });
+
+  it('a salesperson prepares it for the customer: their ZIP, and the project is created for them (1i)', async () => {
+    const el = await categoriesLoaded(setup('62701', { for: 'c-alice', name: 'Alice Acme', zip: '75078' }));
+    expect(el.querySelector('[data-testid="for-customer"]')?.textContent).toContain('Alice Acme');
+    expect(el.querySelector('[data-testid="zip-yes"]')?.textContent).toContain('Use ZIP 75078');
+    await click(el, 'zip-yes');
+    await served(el, '75078', [product('CT-QTZ', 'countertops', 89)]);
+    await click(el, 'type-countertops');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    await click(el, 'choose-CT-QTZ');
+    const create = http.expectOne((r) => r.url === '/api/projects' && r.method === 'POST');
+    expect(create.request.body).toEqual({ zip: '75078', title: 'Countertops · CT-QTZ', customerId: 'c-alice' });
+    create.flush({ id: 'p1' });
+    await settle();
+    http.expectOne('/api/projects/p1/answers').flush({ id: 'p1' });
+    await settle();
   });
 
   it('"Use a different ZIP" explains an unserved one; Back on products returns to the types', async () => {

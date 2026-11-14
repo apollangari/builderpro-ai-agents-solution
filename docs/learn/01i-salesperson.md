@@ -18,7 +18,7 @@ report:      paid deposit = a sale credited to Sam (commission at the store's ra
 | Accept and pay | unchanged | Customer only: the salesperson's Accept and deposit calls are refused. The workspace hides those buttons for staff. |
 | Commission | `GET /api/sales/commission?from=&to=` (default: this month) | A sale = a **paid** deposit on a project the salesperson prepared. A salesperson sees their own line; `sales.report` sees everyone's. Rate: `Sales:CommissionPercent:{tenant}` or `:Default`. With no rate the report shows sales only. |
 
-The web app has a **Sales** page (avatar menu) with customer search, Start project, and the month's sales table.
+The web app has a **Sales** page in the avatar menu: customer search and the month's sales table. **Start project** opens the same ZIP → type → product steps the customer would take (`/quote/new?for=<customerId>`), using the customer's ZIP; choosing a product creates the project for them.
 
 Not yet:
 - inviting a new customer (sign-up link by email or text)

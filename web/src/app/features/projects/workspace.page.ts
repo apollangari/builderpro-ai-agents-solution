@@ -118,7 +118,9 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                     @for (s of installSteps; track s.id; let i = $index) {
                       <li [class.done]="installIndex() > i || p.stage === 'done'" [class.current]="installIndex() === i && p.stage !== 'done'">
                         <span>{{ s.label }}</span>
-                        @if (installDate(s.id); as at) { <span class="muted small">{{ at | date: 'MMM d' }}</span> }
+                        @if (s.id === 'scheduled' && p.install?.scheduledFor) {
+                          <span class="muted small">for {{ p.install!.scheduledFor | date: 'MMM d' }}</span>
+                        } @else if (installDate(s.id); as at) { <span class="muted small">{{ at | date: 'MMM d' }}</span> }
                       </li>
                     }
                   </ol>
@@ -263,6 +265,7 @@ export class WorkspacePage {
     computation: (stage) => (stage && !['discover', 'configure'].includes(stage) ? 'quote' : 'measure'),
   });
   /** The whole journey in one tracker: done before the project, this project's screens, then what follows the quote. */
+  private readonly quoteGroups = computed(() => new Set<string>(['measure', ...(this.project()?.quote?.lines ?? []).map((l) => (l as { group?: string }).group ?? '')]));
   protected readonly journey = computed<TrackerStep[]>(() => [
     { id: 'zip', label: 'ZIP' },
     { id: 'type', label: 'Type' },
@@ -273,7 +276,8 @@ export class WorkspacePage {
       { id: 'protection', label: 'Protection' },
       { id: 'quote', label: 'Quote' },
     ]
-      .filter((g) => this.pages().some((p) => p.group === g.id))
+      // After the deposit the step screens aren't shown, so the quote's own line groups say which steps it had.
+      .filter((g) => this.pages().some((p) => p.group === g.id) || (this.locked() && this.quoteGroups().has(g.id)))
       .map((g) => ({ ...g, clickable: !this.locked() })),
     { id: 'deposit', label: 'Deposit' },
     { id: 'measure-visit', label: 'Visit' },
@@ -300,7 +304,9 @@ export class WorkspacePage {
   protected readonly depositPercent = computed(() => this.project()?.deposit?.percent ?? 5);
   protected readonly missingSteps = computed(() => {
     const missing = this.project()?.preview?.missing ?? [];
-    return missing.length ? missing.join(', ') : 'the measurements';
+    // The step names the customer saw ("Sink"), not the group ids ("ct-sink").
+    const label = (id: string) => this.screens().find((s) => s.id === id)?.label ?? id;
+    return missing.length ? missing.map(label).join(', ') : 'the measurements';
   });
 
   protected move(delta: number): void {

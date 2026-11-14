@@ -555,6 +555,54 @@
       }
     },
     {
+      "id": "3ea50000-0000-4000-8000-000000000008",
+      "username": "mia",
+      "email": "mia@acme.test",
+      "emailVerified": true,
+      "firstName": "Mia",
+      "lastName": "Measure",
+      "enabled": true,
+      "realmRoles": [
+        "staff"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Passw0rd!",
+          "temporary": false
+        }
+      ],
+      "attributes": {
+        "tenant_id": [
+          "t-acme"
+        ],
+        "phone": [
+          "+1 555 010 0008"
+        ],
+        "contactConsent": [
+          "none"
+        ],
+        "contactHours": [
+          "business"
+        ],
+        "addressLine1": [
+          "Mia Test Street 1"
+        ],
+        "city": [
+          "Prosper"
+        ],
+        "region": [
+          "TX"
+        ],
+        "postalCode": [
+          "75078"
+        ],
+        "country": [
+          "US"
+        ]
+      }
+    },
+    {
       "id": "9a700000-0000-4000-8000-000000000006",
       "username": "pat",
       "email": "pat@builderpro.test",

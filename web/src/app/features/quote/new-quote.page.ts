@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -33,6 +33,9 @@ type Step = 'zip' | 'type' | 'product';
   template: `
     <div class="page">
       <bp-progress-tracker [steps]="stepLabels" [current]="step()" />
+      @if (forCustomer()) {
+        <p class="for-customer muted" data-testid="for-customer">Preparing a quote for <strong>{{ forName() || 'your customer' }}</strong>. They accept it and pay the deposit in their own account.</p>
+      }
 
       @switch (step()) {
         @case ('zip') {
@@ -42,7 +45,7 @@ type Step = 'zip' | 'type' | 'product';
 
             @if (profileZip() && !editing()) {
               <div class="zip-big" aria-hidden="true">{{ profileZip() }}</div>
-              <p class="muted small">The ZIP from your account</p>
+              <p class="muted small">{{ forCustomer() ? "The ZIP from the customer's account" : 'The ZIP from your account' }}</p>
               <button type="button" class="btn btn-primary wide" (click)="useZip(profileZip()!)" [disabled]="area.isLoading()" data-testid="zip-yes">
                 {{ area.isLoading() ? 'Checking…' : 'Use ZIP ' + profileZip() }}
               </button>
@@ -160,6 +163,7 @@ type Step = 'zip' | 'type' | 'product';
     </div>
   `,
   styles: `
+    .for-customer { text-align: center; margin: .25rem 0 0; }
     .steps { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; margin: 0 0 1rem; counter-reset: step; }
     .steps li { counter-increment: step; padding: .3rem .75rem; border-radius: 999px; border: 1px solid var(--bp-border); color: var(--bp-ink-muted); font-size: .85rem; }
     .steps li::before { content: counter(step) '. '; }
@@ -231,8 +235,14 @@ export class NewQuotePage {
     { id: 'quote', label: 'Quote' },
   ];
 
-  /** The ZIP from the sign-up address (ID token claim postal_code), or null. */
+  /** 1i: a salesperson prepares this for a customer (/quote/new?for=c-alice&name=...&zip=...). */
+  readonly forCustomer = input<string | undefined>(undefined, { alias: 'for' });
+  readonly forName = input<string | undefined>(undefined, { alias: 'name' });
+  readonly forZip = input<string | undefined>(undefined, { alias: 'zip' });
+
+  /** The ZIP from the sign-up address (ID token claim postal_code), or null. For a customer: theirs. */
   protected readonly profileZip = computed(() => {
+    if (this.forCustomer()) return this.forZip()?.trim() || null;
     const claims = this.oidc.userData().userData as { postal_code?: string } | null;
     return claims?.postal_code?.trim() || null;
   });
@@ -302,7 +312,7 @@ export class NewQuotePage {
   }
 
   // ---- choosing a product creates the project, saves the product, opens the workspace ----
-  private readonly createReq = signal<{ zip: string; title: string } | null>(null);
+  private readonly createReq = signal<{ zip: string; title: string; customerId?: string } | null>(null);
   private readonly created = httpResource<Project>(() => {
     const body = this.createReq();
     return body ? { url: '/api/projects', method: 'POST', body } : undefined;
@@ -353,7 +363,8 @@ export class NewQuotePage {
     const zip = this.servedZip();
     if (!zip || this.starting()) return;
     this.selected.set(p.sku);
-    this.createReq.set({ zip, title: `${this.typeName()} · ${p.name}` });
+    const customerId = this.forCustomer();
+    this.createReq.set(customerId ? { zip, title: `${this.typeName()} · ${p.name}`, customerId } : { zip, title: `${this.typeName()} · ${p.name}` });
   }
 
   /** Platform pictures for types whose first product isn't a good picture (roofing's could be drip edge). */

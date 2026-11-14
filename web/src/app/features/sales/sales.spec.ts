@@ -29,7 +29,7 @@ describe('SalesPage (1i)', () => {
   }
   afterEach(() => http.verify());
 
-  it('finds a customer and starts a project for them, then opens it', async () => {
+  it('finds a customer and starts the quote steps for them', async () => {
     const fixture = setup();
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     await fixture.whenStable();
@@ -49,13 +49,7 @@ describe('SalesPage (1i)', () => {
     await fixture.whenStable();
 
     el.querySelector<HTMLButtonElement>('[data-testid="start-for"]')!.click();
-    TestBed.tick();
-    const post = http.expectOne('/api/projects');
-    expect(post.request.method).toBe('POST');
-    expect(post.request.body).toEqual({ zip: '75078', customerId: 'c-alice', title: 'Project for Alice Acme' });
-    post.flush({ id: 'p9' });
-    await fixture.whenStable();
-    expect(navigate).toHaveBeenCalledWith(['/projects', 'p9']);
+    expect(navigate).toHaveBeenCalledWith(['/quote/new'], { queryParams: { for: 'c-alice', name: 'Alice Acme', zip: '75078' } });
   });
 
   it('a manager sees the report without the customer search', async () => {

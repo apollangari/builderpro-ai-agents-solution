@@ -26,7 +26,7 @@ interface Slot {
         <div class="warning" role="alert"><span>{{ describe(slots.error()) }}</span></div>
       } @else if (slots.hasValue()) {
         <div class="days">
-          @for (day of days(); track day.label) {
+          @for (day of shownDays(); track day.label) {
             <div class="day">
               <span class="label">{{ day.label }}</span>
               @for (s of day.slots; track s.start) {
@@ -37,6 +37,9 @@ interface Slot {
             </div>
           }
         </div>
+        @if (days().length > shownDays().length) {
+          <div class="actions"><button type="button" class="btn" (click)="showAll.set(true)" data-testid="visit-more">More days</button></div>
+        }
       } @else {
         <p class="muted">Loading times…</p>
       }
@@ -56,6 +59,9 @@ export class VisitBookingComponent {
   readonly booked = output<VisitInfo>();
 
   protected readonly changing = signal(false);
+  /** A week's worth first, so the card doesn't scroll; the rest on request. */
+  protected readonly showAll = signal(false);
+  protected readonly shownDays = computed(() => (this.showAll() ? this.days() : this.days().slice(0, 6)));
   protected readonly slots = httpResource<Slot[]>(() =>
     !this.visit() || this.changing() ? `/api/projects/${encodeURIComponent(this.projectId())}/visit/slots` : undefined,
   );

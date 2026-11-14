@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { httpResource } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
@@ -82,12 +82,11 @@ const FALLBACK_ZIP = '75078';
                     <strong>{{ c.name || c.email }}</strong>
                     <span class="muted">{{ c.email }}@if (c.phone) { · {{ c.phone }} }@if (c.postalCode) { · ZIP {{ c.postalCode }} }</span>
                   </div>
-                  <button type="button" class="btn btn-primary" (click)="start(c)" [disabled]="started.isLoading()" data-testid="start-for">Start project</button>
+                  <button type="button" class="btn btn-primary" (click)="start(c)" data-testid="start-for">Start project</button>
                 </li>
               }
             </ul>
           }
-          @if (started.error()) { <div class="warning" role="alert"><span>{{ describe(started.error()) }}</span></div> }
           <p class="muted small">You prepare the project and the quote; the customer accepts it and pays the deposit in their own account.</p>
         </section>
       }
@@ -98,7 +97,7 @@ const FALLBACK_ZIP = '75078';
           <div class="warning" role="alert"><span>{{ describe(report.error()) }}</span></div>
         } @else if (report.hasValue()) {
           @let r = report.value();
-          <p class="muted small">{{ r.from | date: 'mediumDate' }} – {{ r.to | date: 'mediumDate' }}. A sale counts once the customer's deposit is paid.</p>
+          <p class="muted small">{{ r.from | date: 'MMMM y' : 'UTC' }}. A sale counts once the customer's deposit is paid.</p>
           <table class="table">
             <thead><tr><th>Salesperson</th><th>Sales</th><th>Sold</th><th>Commission</th></tr></thead>
             <tbody>
@@ -148,34 +147,16 @@ export class SalesPage {
   });
   protected readonly report = httpResource<CommissionReport>(() => '/api/sales/commission');
 
-  private readonly startFor = signal<{ customer: CustomerHit; n: number } | null>(null);
-  private n = 0;
-  protected readonly started = httpResource<{ id: string }>(() => {
-    const s = this.startFor();
-    return s
-      ? {
-          url: '/api/projects',
-          method: 'POST',
-          body: { zip: s.customer.postalCode || FALLBACK_ZIP, customerId: s.customer.customerId, title: `Project for ${s.customer.name || s.customer.email}` },
-        }
-      : undefined;
-  });
-  private readonly startedId = computed(() => (this.started.hasValue() ? this.started.value()!.id : null));
-
-  constructor() {
-    effect(() => {
-      const id = this.startedId();
-      if (id) void this.router.navigate(['/projects', id]);
-    });
-  }
-
   protected find(): void {
     const q = this.text().trim();
     if (q.length >= 2) this.query.set(q);
   }
 
+  /** The same ZIP, type and product steps the customer would take, prepared for them (1i). */
   protected start(customer: CustomerHit): void {
-    this.startFor.set({ customer, n: ++this.n });
+    void this.router.navigate(['/quote/new'], {
+      queryParams: { for: customer.customerId, name: customer.name || customer.email, zip: customer.postalCode || FALLBACK_ZIP },
+    });
   }
 
   protected describe(err: unknown): string {
