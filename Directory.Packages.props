@@ -26,6 +26,8 @@
     <!-- Microsoft Agent Framework on Microsoft.Extensions.AI; the OpenAI client talks to Foundry's OpenAI v1 API. -->
     <PackageVersion Include="Microsoft.Agents.AI" Version="1.28.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
+    <!-- 3c: Model Context Protocol server (official C# SDK), Streamable HTTP. -->
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.3.1" />
   </ItemGroup>
   <ItemGroup Label="Platform">
     <!-- Dapper: SQL stays hand-written and readable; Dapper only maps rows <-> objects. -->

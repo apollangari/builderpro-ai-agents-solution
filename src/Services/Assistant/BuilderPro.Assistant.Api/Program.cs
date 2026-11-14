@@ -20,6 +20,12 @@ builder.Services.AddHttpClient("catalog", c => c.BaseAddress = new Uri("http://c
 builder.Services.AddHttpClient("quotes", c => c.BaseAddress = new Uri("http://quotes"));
 builder.Services.AddScoped<IPlatformApi, HttpPlatformApi>();
 
+// 3c: the same catalog/quote tools for any MCP client (Streamable HTTP, stateless: each call is one
+// HTTP request carrying the customer's own token, so the tools act exactly as that customer).
+builder.Services.AddMcpServer(o => o.ServerInfo = new() { Name = "builderpro", Version = "1.0" })
+    .WithHttpTransport(o => o.Stateless = true)
+    .WithTools<McpTools>();
+
 // The model, chosen by configuration (the AppHost passes it from user secrets; Key Vault in Azure):
 //   foundry (default):  Microsoft Foundry's OpenAI v1 API, https://<resource>.services.ai.azure.com/openai/v1/,
 //                       the deployment name as the model, API key required.
@@ -37,6 +43,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapAssistantEndpoints();
 app.MapConciergeEndpoints();   // 3b
+app.MapMcp("/api/assistant/mcp").RequireAuthorization();   // 3c: MCP, signed-in callers only
 
 app.Run();
 
