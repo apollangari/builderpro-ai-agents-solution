@@ -55,4 +55,23 @@ public sealed class CustomerSearchTests(IdentityFactory f) : IClassFixture<Ident
         Assert.Equal(HttpStatusCode.NotFound, (await _f.As("sam").GetAsync("/api/identity/customers/c-carla")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("alice").GetAsync("/api/identity/customers/c-alice")).StatusCode);
     }
+
+    [Fact]
+    public async Task Order_updates_use_only_the_channels_the_customer_consented_to()
+    {
+        await _f.Store.UpsertAsync("t-acme", IdentityFactory.KeyFor("mia"), null, ["quotes.read", "scheduling.write"], null, default);
+        await _f.Store.UpsertAsync("t-acme", IdentityFactory.KeyFor("abe"), "c-abe", ["quotes.read"], null, default);
+        await _f.Consents.AppendAsync(IdentityFactory.KeyFor("alice"), "both", "business", "v1", "signup", IdentityFactory.Now, default);
+        await _f.Consents.AppendAsync(IdentityFactory.KeyFor("alice"), "text", "evenings", "v1", "profile", IdentityFactory.Now.AddMinutes(1), default);
+
+        var alice = await _f.As("mia").GetFromJsonAsync<ContactChannelsDto>("/api/identity/customers/c-alice/channels");
+        Assert.Equal(new[] { "email", "sms" }, alice!.Channels);   // the LATEST consent counts
+        Assert.Equal("evenings", alice.Hours);
+        var abe = await _f.As("mia").GetFromJsonAsync<ContactChannelsDto>("/api/identity/customers/c-abe/channels");
+        Assert.Equal(new[] { "email" }, abe!.Channels);   // nothing recorded: email only
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _f.As("mia").GetAsync("/api/identity/customers/c-carla/channels")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("bob").GetAsync("/api/identity/customers/c-alice/channels")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("alice").GetAsync("/api/identity/customers/c-alice/channels")).StatusCode);
+    }
 }

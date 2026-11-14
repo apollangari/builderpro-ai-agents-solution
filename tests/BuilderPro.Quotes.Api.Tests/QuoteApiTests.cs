@@ -75,6 +75,15 @@ public sealed class FakeCustomerDirectory(FakeTenantLookup tenants) : ICustomerD
     }
 }
 
+/// <summary>Stands in for Identity's consented channels (6c): alice agreed to texts, abe to nothing; null = Identity down.</summary>
+public sealed class FakeContactChannels : IContactChannels
+{
+    public bool Down { get; set; }
+
+    public Task<IReadOnlyList<string>?> ForCustomerAsync(HttpContext http, string customerId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<string>?>(Down ? null : customerId == "c-alice" ? ["email", "sms"] : ["email"]);
+}
+
 /// <summary>Stands in for the Catalog: per-tenant price lists, or "down".</summary>
 public sealed class FakeCatalog(FakeTenantLookup tenants) : ICatalogPrices
 {
@@ -132,6 +141,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public InMemoryProjectStore Projects { get; } = new();
     public InMemoryDepositStore Deposits { get; } = new();
     public InMemoryVisitStore Visits { get; } = new();
+    public InMemoryInstallStore Installs { get; } = new();
+    public FakeContactChannels Channels { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCustomerDirectory Customers { get; }
     private readonly Dictionary<string, string> _settings = [];
@@ -163,6 +174,10 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IDepositStore>(Deposits);
             s.RemoveAll<IVisitStore>();
             s.AddSingleton<IVisitStore>(Visits);
+            s.RemoveAll<IInstallStore>();
+            s.AddSingleton<IInstallStore>(Installs);
+            s.RemoveAll<IContactChannels>();
+            s.AddSingleton<IContactChannels>(Channels);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
             s.RemoveAll<ICustomerDirectory>();
@@ -1119,5 +1134,88 @@ public sealed class MeasureVisitApiTests
         await Book(f, p.Id);
         Assert.Equal(HttpStatusCode.Forbidden, (await f.As("alice").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) })).StatusCode);
+    }
+}
+
+
+/// <summary>6c: staff move the installation step by step; order updates go only to consented channels.</summary>
+public sealed class InstallApiTests
+{
+    private static readonly object CompleteAnswers = new
+    {
+        sku = "CT-QTZ",
+        measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } },
+        choices = new object[] { new { group = "edge", sku = "EDGE-EASED" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static async Task<ProjectDto> Installing(QuotesFactory f, string sub = "alice")
+    {
+        var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null);
+        var d = (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        await f.As(sub).PostAsync($"/api/deposits/{d.Id}/pay", null);
+        await f.As(sub).PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero) });
+        var measured = (await (await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured",
+            new { measurements = new { countertop = new { countertop = new[] { new { widthIn = 120m, depthIn = 25m } } } } })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal("install", measured.Stage);
+        return measured;
+    }
+
+    private static Task<HttpResponseMessage> Step(QuotesFactory f, Guid id, string step, DateTimeOffset? when = null, string sub = "mia") =>
+        f.As(sub).PostAsJsonAsync($"/api/projects/{id}/install", new { step, scheduledFor = when });
+
+    [Fact]
+    public async Task Staff_move_the_install_through_its_steps_to_done_and_the_customer_sees_each()
+    {
+        using var f = new QuotesFactory();
+        var p = await Installing(f);
+        var day = QuotesFactory.Now.AddDays(10);
+        Assert.Equal(HttpStatusCode.OK, (await Step(f, p.Id, "scheduled", day)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Step(f, p.Id, "scheduled", day.AddDays(2))).StatusCode);   // moved before work starts
+        Assert.Equal(HttpStatusCode.OK, (await Step(f, p.Id, "fabricating")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Step(f, p.Id, "scheduled", day)).StatusCode);       // too late to move
+        Assert.Equal(HttpStatusCode.Conflict, (await Step(f, p.Id, "done")).StatusCode);                // no skipping
+        Assert.Equal(HttpStatusCode.OK, (await Step(f, p.Id, "installing")).StatusCode);
+        var done = (await (await Step(f, p.Id, "done")).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(("done", "done"), (done.Stage, done.Install!.Step));
+
+        var mine = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+        Assert.Equal(new[] { "scheduled", "scheduled", "fabricating", "installing", "done" }, mine.Install!.Events.Select(e => e.Step));
+        Assert.Equal(day.AddDays(2), mine.Install.ScheduledFor);
+        Assert.Equal(HttpStatusCode.Conflict, (await Step(f, p.Id, "done")).StatusCode);   // closed
+    }
+
+    [Fact]
+    public async Task Order_updates_go_only_to_the_channels_the_customer_consented_to()
+    {
+        using var f = new QuotesFactory();
+        var a = await Installing(f, "alice");   // consented to texts
+        await Step(f, a.Id, "scheduled", QuotesFactory.Now.AddDays(10));
+        var b = await Installing(f, "abe");     // no consent to texts or calls
+        await Step(f, b.Id, "scheduled", QuotesFactory.Now.AddDays(10));
+        f.Channels.Down = true;                 // Identity down: email only
+        await Step(f, a.Id, "fabricating");
+
+        var alice = (await f.As("alice").GetFromJsonAsync<NotificationDto[]>($"/api/projects/{a.Id}/notifications"))!;
+        Assert.Equal(new[] { "email", "sms", "email" }, alice.Select(n => n.Channel));
+        Assert.Contains("scheduled for 2026-11-23", alice[0].Message);
+        var abe = (await f.As("abe").GetFromJsonAsync<NotificationDto[]>($"/api/projects/{b.Id}/notifications"))!;
+        Assert.Equal(new[] { "email" }, abe.Select(n => n.Channel));
+    }
+
+    [Fact]
+    public async Task Only_store_staff_record_install_steps_and_only_during_install()
+    {
+        using var f = new QuotesFactory();
+        var fresh = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(HttpStatusCode.Conflict, (await Step(f, fresh.Id, "scheduled", QuotesFactory.Now.AddDays(3))).StatusCode);
+        var p = await Installing(f);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Step(f, p.Id, "scheduled", QuotesFactory.Now.AddDays(3), "alice")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Step(f, p.Id, "scheduled", QuotesFactory.Now.AddDays(3), "bob")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Step(f, p.Id, "scheduled", QuotesFactory.Now.AddDays(-1))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Step(f, p.Id, "painting")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Step(f, p.Id, "fabricating")).StatusCode);   // schedule first
     }
 }

@@ -205,6 +205,14 @@ export interface VisitInfo {
   measuredAt: string | null;
 }
 
+/** Installation progress (6c). Mirrors InstallDto in C#. */
+export type InstallStep = 'scheduled' | 'fabricating' | 'installing' | 'done';
+export interface InstallInfo {
+  step: InstallStep | null;
+  scheduledFor: string | null;
+  events: { step: InstallStep; at: string; scheduledFor: string | null; note: string | null }[];
+}
+
 /** The 5 % deposit (6a). Mirrors DepositDto in C#. */
 export interface DepositInfo {
   id: string;
@@ -240,6 +248,8 @@ export interface Project {
   preparedBy?: string | null;
   /** 6b: the measure visit. */
   visit?: VisitInfo | null;
+  /** 6c: installation steps. */
+  install?: InstallInfo | null;
 }
 
 export interface ProjectSummary {

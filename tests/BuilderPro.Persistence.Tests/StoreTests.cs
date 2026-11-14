@@ -399,3 +399,29 @@ public sealed class ConsentStoreTests(PostgresFixture pg)
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => store.AppendAsync("u1", "fax", "business", "v1", "sync", T0, default));
     }
 }
+
+/// <summary>6c: install steps and the notification outbox in Postgres.</summary>
+[Collection(PostgresCollection.Name)]
+public sealed class InstallStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset T0 = new(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Steps_and_their_updates_are_saved_together_per_tenant()
+    {
+        var store = new PostgresInstallStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);
+        var project = Guid.NewGuid();
+        var e1 = new InstallEvent(Guid.NewGuid(), "t-acme", project, "scheduled", T0, "u-1", T0.AddDays(10), "Morning");
+        await store.AddAsync(e1, [new Notification(Guid.NewGuid(), "t-acme", project, "c-alice", "email", "scheduled", T0),
+                                  new Notification(Guid.NewGuid(), "t-acme", project, "c-alice", "sms", "scheduled", T0)], default);
+        await store.AddAsync(new InstallEvent(Guid.NewGuid(), "t-acme", project, "fabricating", T0.AddDays(1), "u-1", null, null), [], default);
+
+        var events = await store.ForProjectAsync("t-acme", project, default);
+        Assert.Equal(new[] { "scheduled", "fabricating" }, events.Select(e => e.Step));
+        Assert.Equal((T0.AddDays(10), "Morning"), (events[0].ScheduledFor, events[0].Note));
+        Assert.Empty(await store.ForProjectAsync("t-globex", project, default));
+        Assert.Equal(new[] { "email", "sms" }, (await store.NotificationsAsync("t-acme", project, default)).Select(n => n.Channel));
+    }
+}

@@ -22,5 +22,6 @@ Web: the workspace shows the times grouped by day, the booked visit with **Chang
 Not yet:
 - a staff screen to enter the measured sizes (API only; it comes with 3e's staff console)
 - what happens if the customer declines the new total (deposit refund)
+- offering only times inside the customer's contact hours
 - reminders before the visit
 - per-measurer calendars

@@ -20,6 +20,7 @@ builder.Services.AddSingleton<IQuoteStore, PostgresQuoteStore>();
 builder.Services.AddSingleton<IProjectStore, PostgresProjectStore>();   // 2n-f
 builder.Services.AddSingleton<IDepositStore, PostgresDepositStore>();   // 6a
 builder.Services.AddSingleton<IVisitStore, PostgresVisitStore>();       // 6b
+builder.Services.AddSingleton<IInstallStore, PostgresInstallStore>();   // 6c
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
 // Tenant, customer and scopes: asked from the Identity service (LEARN 2a).
@@ -28,6 +29,10 @@ builder.Services.AddTenantLookup(builder.Configuration);
 // List prices: read from the Catalog service with the caller's token (LEARN 2d).
 // 1i: "is this a customer of my store?" asked from Identity with the salesperson's token.
 builder.Services.AddHttpClient<ICustomerDirectory, IdentityCustomerDirectory>(c =>
+    c.BaseAddress = new Uri(builder.Configuration["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
+
+// 6c: the channels a customer consented to for order updates, asked from Identity.
+builder.Services.AddHttpClient<IContactChannels, IdentityContactChannels>(c =>
     c.BaseAddress = new Uri(builder.Configuration["Tenancy:IdentityBaseUrl"] ?? "http://identity"));
 
 builder.Services.AddHttpClient<ICatalogPrices, CatalogPriceClient>(c =>
@@ -42,6 +47,7 @@ await app.Services.GetRequiredService<IQuoteStore>().InitializeAsync(Cancellatio
 await app.Services.GetRequiredService<IProjectStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IDepositStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IVisitStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IInstallStore>().InitializeAsync(CancellationToken.None);
 
 app.UseExceptionHandler();
 app.UseAuthentication();

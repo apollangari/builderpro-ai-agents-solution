@@ -18,7 +18,8 @@ public sealed record ProjectDto(
     Guid Id, string Title, string Zip, string Stage, string? Sku, JsonElement Answers,
     GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt,
     DepositDto? Deposit = null, string? PreparedBy = null,   // 1i: the salesperson who prepared it
-    VisitDto? Visit = null);                                  // 6b: the measure visit
+    VisitDto? Visit = null,                                   // 6b: the measure visit
+    InstallDto? Install = null);                              // 6c: installation steps
 
 public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt,
     string? PreparedBy = null, string? CustomerId = null);
@@ -44,6 +45,7 @@ public static class ProjectEndpoints
         api.MapPost("/{id:guid}/quote", IssueAsync).WithSummary("Issue a numbered quote from the current answers (all required steps answered).");
         api.MapPost("/{id:guid}/accept", AcceptAsync).WithSummary("The customer accepts the issued quote; the 5 % deposit is then due. Accepting alone doesn't hold the price (6a). Never an agent.");
         api.MapVisitEndpoints();   // 6b: measure visit, measured quote, confirm
+        api.MapInstallEndpoints(); // 6c: installation steps and order updates
         api.MapPost("/{id:guid}/deposit", DepositEndpoints.StartAsync).WithSummary("Start the 5 % deposit for the accepted quote: returns the amount and where to pay. Customer only, never an agent.");
         return app;
     }
@@ -293,10 +295,13 @@ public static class ProjectEndpoints
         }
 
         var visit = ProjectStages.IsLocked(p.Stage) ? await http.RequestServices.GetRequiredService<IVisitStore>().ForProjectAsync(p.TenantId, p.Id, ct) : null;
+        var install = p.Stage is ProjectStages.Install or ProjectStages.Done
+            ? InstallEndpoints.ToDto(await http.RequestServices.GetRequiredService<IInstallStore>().ForProjectAsync(p.TenantId, p.Id, ct))
+            : null;
         using var answers = JsonDocument.Parse(p.AnswersJson);
         return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt,
             deposit is null ? null : DepositEndpoints.ToDto(deposit, http), PreparedBy: p.SalespersonName,
-            Visit: visit is null ? null : VisitEndpoints.ToDto(visit));
+            Visit: visit is null ? null : VisitEndpoints.ToDto(visit), Install: install);
     }
 
     private static IResult Problem(int status, string code, string detail) =>

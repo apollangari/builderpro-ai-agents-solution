@@ -108,7 +108,20 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                     <p class="muted small">Waiting for the customer to confirm.</p>
                   }
                 } @else if (q.held && (p.stage === 'install' || p.stage === 'done')) {
-                  <p class="ok" data-testid="order-confirmed">Measured and confirmed: this is your order. Installation is next.</p>
+                  @if (p.stage === 'done') {
+                    <p class="ok" data-testid="installed">Installed. Thank you for building with us!</p>
+                  } @else {
+                    <p class="ok" data-testid="order-confirmed">Measured and confirmed: this is your order.
+                      @if (p.install?.scheduledFor) { Installation is scheduled for {{ p.install!.scheduledFor | date: 'EEEE, MMM d' }}. } @else { We'll schedule the installation with you next. }</p>
+                  }
+                  <ol class="install" data-testid="install-steps">
+                    @for (s of installSteps; track s.id; let i = $index) {
+                      <li [class.done]="installIndex() > i || p.stage === 'done'" [class.current]="installIndex() === i && p.stage !== 'done'">
+                        <span>{{ s.label }}</span>
+                        @if (installDate(s.id); as at) { <span class="muted small">{{ at | date: 'MMM d' }}</span> }
+                      </li>
+                    }
+                  </ol>
                 } @else if (q.held) {
                   <p class="ok" data-testid="held">Deposit of {{ p.deposit!.amount | currency: p.deposit!.currency }} paid on {{ p.deposit!.paidAt | date: 'mediumDate' }}. Your price is held; next is the measure visit.</p>
                   @if (p.stage === 'measure') {
@@ -172,6 +185,10 @@ import { StoreFeatures } from '../../core/tenant/store-features';
     </div>
   `,
   styles: `
+    .install { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem; padding: 0; margin: .75rem 0 0; }
+    .install li { display: grid; gap: .1rem; padding: .5rem .6rem; border-radius: .5rem; border: 1px solid var(--bp-border); text-align: center; font-size: .9rem; }
+    .install li.done { background: var(--bp-accent-soft); }
+    .install li.current { border-color: var(--bp-accent); font-weight: 700; }
     .head { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
     .rail { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1rem; }
     .rail li { padding: .4rem .9rem; border-radius: 999px; border: 1px solid var(--bp-border); color: var(--bp-ink-muted); font-size: .9rem; min-height: 2rem; }
@@ -321,6 +338,23 @@ export class WorkspacePage {
   protected issue(): void {
     this.action.set({ kind: 'quote', n: ++this.n });
     this.page.set('quote');
+  }
+
+  /** 6c: the installation steps the customer follows. */
+  protected readonly installSteps = [
+    { id: 'scheduled', label: 'Scheduled' },
+    { id: 'fabricating', label: 'Being made' },
+    { id: 'installing', label: 'Installing' },
+    { id: 'done', label: 'Done' },
+  ] as const;
+  protected readonly installIndex = computed(() => {
+    const step = this.project()?.install?.step;
+    return step ? this.installSteps.findIndex((s) => s.id === step) : -1;
+  });
+  /** When a step happened (the last time it was recorded). */
+  protected installDate(step: string): string | null {
+    const events = this.project()?.install?.events ?? [];
+    return [...events].reverse().find((e) => e.step === step)?.at ?? null;
   }
 
   /** 6b: the customer accepts the measured quote. */

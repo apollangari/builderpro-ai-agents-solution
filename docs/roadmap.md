@@ -11,6 +11,7 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 
 | # | Deliverable |
 |---|---|
+| 6c | Install tracking: staff move scheduled -> fabricating -> installing -> done (one step at a time; date can move until fabrication); each step records order updates only on the customer's consented channels (latest consent from Identity, email-only when unknown) in an outbox; workspace step strip ([LEARN](learn/06c-install-tracking.md)) |
 | 6b | Measure visit: store visit times (zone, days, per-slot capacity), book/move by the customer or scheduling staff; staff record measured sizes re-priced at the HELD unit prices into a new numbered quote; same total -> install, changed total -> customer confirms (never staff or an agent) ([LEARN](learn/06b-measure-visit.md)) |
 | 1i | Salesperson login: scopes `sales` / `sales.report`; customer search limited to the store's own customers; projects started on a customer's behalf ("prepared by"), editable only by that salesperson or the customer; Accept and deposit stay customer-only; commission report from paid deposits at the store's rate; Sales page. Invite-by-link not yet ([LEARN](learn/01i-salesperson.md)) |
 | 6a | Deposit holds the price: Accept no longer holds it; the customer pays a 5 % deposit (DepositPolicy on the stored total, per-store percent) through a test-mode payment page; paid = price held, project to the measure visit, answers locked; customer only (staff and agents refused) ([LEARN](learn/06a-deposit.md)) |
@@ -58,7 +59,6 @@ not a contract: anything past the next two or three rows will be re-cut as we le
 | 3e | **A person can take over**: store staff see live concierge conversations for their store and can reply in the same thread; the agent pauses while staff are active | The customer sees who is answering (concierge or a named person) |
 | 3c | Expose catalog/quote tools over **MCP** | An MCP client can list and call the tools |
 | 4a | Python **LangGraph** agent talking to the .NET agent over **A2A** | One cross-agent conversation, traced end to end in the dashboard |
-| 6c | **Install tracking**: stages scheduled -> fabricating -> installing -> done, with notifications on the customer's chosen channels (consent from 1f-b) | No message is sent on a channel the customer didn't consent to |
 | 4b | **AI phone scheduling (store option)**: after the deposit (6a), the scheduling agent (4a) calls the customer only if they opted in to automated calls, only within their contact hours (their time zone), says it's an automated assistant, offers 2-3 measure-visit slots and a person; the customer confirms the slot from a text/email link (the agent never books on its own); opt-out on every call, recorded; telephony via Azure Communication Services (or Twilio) | No call without automated-call consent or outside the customer's hours; a slot is booked only by the customer's confirmation; opt-outs stop all calls immediately |
 | 5a | Azure: Terraform for one environment, deploy `development` | `dev` environment reachable, Entra login |
 

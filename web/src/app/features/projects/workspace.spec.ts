@@ -131,6 +131,21 @@ describe('WorkspacePage (2n-f)', () => {
     expect(el.querySelector('[data-testid="visit-booked"]')).not.toBeNull();
   });
 
+  it('the installation shows its steps and date', async () => {
+    const el = await open(project({
+      stage: 'install', quote: { ...issued, number: 1043, status: 'accepted', held: true },
+      install: { step: 'fabricating', scheduledFor: '2026-11-23T15:00:00Z', events: [
+        { step: 'scheduled', at: '2026-11-15T10:00:00Z', scheduledFor: '2026-11-23T15:00:00Z', note: null },
+        { step: 'fabricating', at: '2026-11-16T10:00:00Z', scheduledFor: null, note: null },
+      ] },
+    }));
+    expect(el.querySelector('[data-testid="order-confirmed"]')?.textContent).toContain('scheduled for');
+    const steps = [...el.querySelectorAll('[data-testid="install-steps"] li')];
+    expect(steps.map((li) => li.className.includes('done'))).toEqual([true, false, false, false]);
+    expect(steps[1].className).toContain('current');
+    expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Install');
+  });
+
   it('a changed measured total waits for the customer to confirm it', async () => {
     const el = await open(project({
       stage: 'confirm', quote: { ...issued, number: 1043, total: 6500, held: false },
