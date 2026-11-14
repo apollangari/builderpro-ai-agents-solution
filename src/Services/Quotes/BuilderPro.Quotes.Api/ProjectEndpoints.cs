@@ -17,7 +17,8 @@ public sealed record IssuedQuoteDto(
 public sealed record ProjectDto(
     Guid Id, string Title, string Zip, string Stage, string? Sku, JsonElement Answers,
     GuidedQuoteDto? Preview, IReadOnlyList<QuoteErrorDto> PreviewErrors, IssuedQuoteDto? Quote, DateTimeOffset UpdatedAt,
-    DepositDto? Deposit = null, string? PreparedBy = null);   // 1i: the salesperson who prepared it
+    DepositDto? Deposit = null, string? PreparedBy = null,   // 1i: the salesperson who prepared it
+    VisitDto? Visit = null);                                  // 6b: the measure visit
 
 public sealed record ProjectSummaryDto(Guid Id, string Title, string Zip, string Stage, int? QuoteNumber, decimal? QuoteTotal, string? Currency, DateTimeOffset UpdatedAt,
     string? PreparedBy = null, string? CustomerId = null);
@@ -42,6 +43,7 @@ public static class ProjectEndpoints
         api.MapPut("/{id:guid}/answers", AnswersAsync).WithSummary("Save the product, measurements and option answers (the workspace and the concierge both use this).");
         api.MapPost("/{id:guid}/quote", IssueAsync).WithSummary("Issue a numbered quote from the current answers (all required steps answered).");
         api.MapPost("/{id:guid}/accept", AcceptAsync).WithSummary("The customer accepts the issued quote; the 5 % deposit is then due. Accepting alone doesn't hold the price (6a). Never an agent.");
+        api.MapVisitEndpoints();   // 6b: measure visit, measured quote, confirm
         api.MapPost("/{id:guid}/deposit", DepositEndpoints.StartAsync).WithSummary("Start the 5 % deposit for the accepted quote: returns the amount and where to pay. Customer only, never an agent.");
         return app;
     }
@@ -176,6 +178,8 @@ public static class ProjectEndpoints
         if (problem is not null) return problem;
         if (tenant!.CustomerId is null || project!.CustomerId != tenant.CustomerId)
             return Problem(StatusCodes.Status403Forbidden, "customer_only", "Only the customer can accept their quote.");
+        if (ProjectStages.IsLocked(project.Stage))
+            return Problem(StatusCodes.Status409Conflict, "project_locked", "Your deposit is paid; a measured quote is confirmed with Confirm.");
 
         var quote = await QuoteOf(project, tenant, quotes, ct);
         var now = clock.GetUtcNow();
@@ -215,7 +219,7 @@ public static class ProjectEndpoints
         return (tenant, null);
     }
 
-    private static async Task<(TenantLookup? Tenant, Project? Project, IResult? Problem)> LoadAsync(
+    internal static async Task<(TenantLookup? Tenant, Project? Project, IResult? Problem)> LoadAsync(
         Guid id, HttpContext http, ITenantLookup tenants, IProjectStore projects, string scope, CancellationToken ct)
     {
         var (tenant, problem) = await GateAsync(http, tenants, scope, ct);
@@ -224,7 +228,7 @@ public static class ProjectEndpoints
         return project is null ? (null, null, Results.NotFound()) : (tenant, project, null);
     }
 
-    private static Task<Quote?> QuoteOf(Project p, TenantLookup tenant, IQuoteStore quotes, CancellationToken ct) =>
+    internal static Task<Quote?> QuoteOf(Project p, TenantLookup tenant, IQuoteStore quotes, CancellationToken ct) =>
         p.QuoteId is Guid qid ? quotes.FindAsync(tenant.TenantId!, tenant.CustomerId, qid, ct) : Task.FromResult<Quote?>(null);
 
     private sealed record Answers(MeasurementInput? Measurements, GuidedChoiceDto[]? Choices);
@@ -248,12 +252,12 @@ public static class ProjectEndpoints
     /// <summary>The request stored with an issued quote (what it was built from).</summary>
     internal static string RequestJson(GuidedQuoteRequest r) => JsonSerializer.Serialize(r, JsonSerializerOptions.Web);
 
-    private static int ValidityDays(IConfiguration config) => config.GetValue<int?>("Quotes:ValidityDays") ?? 14;
+    internal static int ValidityDays(IConfiguration config) => config.GetValue<int?>("Quotes:ValidityDays") ?? 14;
 
     private static string? Title(string? t) =>
         string.IsNullOrWhiteSpace(t) ? null : t.Trim().Length > MaxTitle ? t.Trim()[..MaxTitle] : t.Trim();
 
-    private static async Task<ProjectDto> ToDtoAsync(
+    internal static async Task<ProjectDto> ToDtoAsync(
         Project p, HttpContext http, ICatalogPrices catalog, Quote? quote, IConfiguration? config, CancellationToken ct, TimeProvider? clock = null)
     {
         GuidedQuoteDto? preview = null;
@@ -275,19 +279,24 @@ public static class ProjectEndpoints
         Deposit? deposit = null;
         if (quote?.Issue is { } issue)
         {
-            deposit = await http.RequestServices.GetRequiredService<IDepositStore>().ForQuoteAsync(p.TenantId, quote.Id, ct);
+            var depositStore = http.RequestServices.GetRequiredService<IDepositStore>();
+            // The deposit belongs to the quote it was paid on; a measured quote (6b) inherits the project's paid deposit.
+            deposit = await depositStore.ForQuoteAsync(p.TenantId, quote.Id, ct) ?? await depositStore.ForProjectAsync(p.TenantId, p.Id, ct);
             var dto = QuoteEndpoints.ToDto(quote);
             var clockNow = (clock ?? TimeProvider.System).GetUtcNow();
             issued = new IssuedQuoteDto(quote.Id, issue.Number, quote.Status, issue.ValidUntil, issue.AcceptedAt,
                 // Held by a paid deposit: this is the order. Otherwise it's current only if today's pricing agrees (6a).
                 Current: deposit?.Paid == true || (now is not null && SameQuote(quote.Priced, now)),
                 Expired: quote.Status == "issued" && issue.ValidUntil <= clockNow,
-                dto.Currency, dto.Lines, dto.Subtotal, dto.TaxRate, dto.Tax, dto.Total, Held: deposit?.Paid == true);
+                dto.Currency, dto.Lines, dto.Subtotal, dto.TaxRate, dto.Tax, dto.Total,
+                Held: deposit?.Paid == true && (deposit.QuoteId == quote.Id || quote.Status == "accepted"));
         }
 
+        var visit = ProjectStages.IsLocked(p.Stage) ? await http.RequestServices.GetRequiredService<IVisitStore>().ForProjectAsync(p.TenantId, p.Id, ct) : null;
         using var answers = JsonDocument.Parse(p.AnswersJson);
         return new ProjectDto(p.Id, p.Title, p.Zip, p.Stage, p.Sku, answers.RootElement.Clone(), preview, errors, issued, p.UpdatedAt,
-            deposit is null ? null : DepositEndpoints.ToDto(deposit, http), PreparedBy: p.SalespersonName);
+            deposit is null ? null : DepositEndpoints.ToDto(deposit, http), PreparedBy: p.SalespersonName,
+            Visit: visit is null ? null : VisitEndpoints.ToDto(visit));
     }
 
     private static IResult Problem(int status, string code, string detail) =>

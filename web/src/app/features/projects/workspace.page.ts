@@ -4,7 +4,8 @@ import { httpResource } from '@angular/common/http';
 import { Router, RouterLink } from '@angular/router';
 import { describeError } from '../../core/api/describe-error';
 import { GuidedStepsComponent } from '../quote/guided-steps.component';
-import { GROUP_TITLES, GuidedLine, Project, STAGES, layoutSketch } from '../quote/guided';
+import { GROUP_TITLES, GuidedLine, Project, STAGES, VisitInfo, layoutSketch } from '../quote/guided';
+import { VisitBookingComponent } from './visit-booking.component';
 import { ConciergePanelComponent } from './concierge-panel.component';
 import { ProgressTrackerComponent, TrackerStep } from '../../shared/progress-tracker.component';
 import { StoreFeatures } from '../../core/tenant/store-features';
@@ -17,7 +18,7 @@ import { StoreFeatures } from '../../core/tenant/store-features';
  */
 @Component({
   selector: 'bp-workspace-page',
-  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent, ProgressTrackerComponent],
+  imports: [CurrencyPipe, DatePipe, DecimalPipe, RouterLink, GuidedStepsComponent, ConciergePanelComponent, ProgressTrackerComponent, VisitBookingComponent],
   template: `
     <div class="page">
       @if (loaded.error()) {
@@ -97,8 +98,22 @@ import { StoreFeatures } from '../../core/tenant/store-features';
                   <dt>Tax</dt><dd>{{ q.tax | currency: q.currency }}</dd>
                   <dt class="total">Total</dt><dd class="total" data-testid="quote-total">{{ q.total | currency: q.currency }}</dd>
                 </dl>
-                @if (q.held) {
+                @if (p.stage === 'confirm') {
+                  <p data-testid="confirm-measured">The measure visit changed your total to {{ q.total | currency: q.currency }} (same prices per unit, measured sizes).</p>
+                  @if (features.isCustomer()) {
+                    <div class="actions">
+                      <button type="button" class="btn btn-primary" (click)="confirm()" [disabled]="busy()" data-testid="confirm-quote">Confirm new total</button>
+                    </div>
+                  } @else {
+                    <p class="muted small">Waiting for the customer to confirm.</p>
+                  }
+                } @else if (q.held && (p.stage === 'install' || p.stage === 'done')) {
+                  <p class="ok" data-testid="order-confirmed">Measured and confirmed: this is your order. Installation is next.</p>
+                } @else if (q.held) {
                   <p class="ok" data-testid="held">Deposit of {{ p.deposit!.amount | currency: p.deposit!.currency }} paid on {{ p.deposit!.paidAt | date: 'mediumDate' }}. Your price is held; next is the measure visit.</p>
+                  @if (p.stage === 'measure') {
+                    <bp-visit-booking [projectId]="p.id" [visit]="p.visit" (booked)="visitBooked($event)" />
+                  }
                 } @else if (q.status === 'accepted' && q.current && !q.expired) {
                   <p data-testid="accepted">Accepted on {{ q.acceptedAt | date: 'medium' }}. Pay a {{ depositPercent() }}% deposit to hold this price; until then it can change.</p>
                   @if (!features.isCustomer()) {
@@ -279,7 +294,7 @@ export class WorkspacePage {
   protected readonly askText = signal<string | null>(null);
 
   /** Quote and accept are POSTs fired by the customer's buttons. */
-  private readonly action = signal<{ kind: 'quote' | 'accept' | 'deposit'; n: number } | null>(null);
+  private readonly action = signal<{ kind: 'quote' | 'accept' | 'deposit' | 'confirm'; n: number } | null>(null);
   private readonly actionResult = httpResource<Project>(() => {
     const a = this.action();
     const p = this.project();
@@ -306,6 +321,16 @@ export class WorkspacePage {
   protected issue(): void {
     this.action.set({ kind: 'quote', n: ++this.n });
     this.page.set('quote');
+  }
+
+  /** 6b: the customer accepts the measured quote. */
+  protected confirm(): void {
+    this.action.set({ kind: 'confirm', n: ++this.n });
+  }
+
+  /** 6b: show the booked visit without reloading the project. */
+  protected visitBooked(visit: VisitInfo): void {
+    this.project.update((p) => (p ? { ...p, visit } : p));
   }
 
   /** Start (or resume) the 5 % deposit, then the payment page. */

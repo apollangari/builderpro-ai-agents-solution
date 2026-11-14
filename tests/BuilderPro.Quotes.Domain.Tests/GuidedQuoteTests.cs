@@ -166,3 +166,48 @@ public sealed class DepositPolicyTests
     public void Impossible_percents_are_refused(decimal percent) =>
         Assert.Throws<ArgumentOutOfRangeException>(() => DepositPolicy.AmountFor(new Money(100m, "USD"), percent));
 }
+
+
+/// <summary>6b: measured quantities at the held unit prices; visit times in the store's zone.</summary>
+public sealed class MeasureVisitTests
+{
+    private static Money Usd(decimal a) => new(a, "USD");
+
+    private static PricedQuote Priced(decimal taxRate, params (string Sku, decimal Qty, decimal Price)[] lines) =>
+        QuotePricer.Price(new QuoteInput([.. lines.Select(l => new QuoteLineInput(l.Sku, l.Sku, "each", l.Qty, Usd(l.Price)))], taxRate)).Quote!;
+
+    [Fact]
+    public void Measured_quantities_are_priced_at_the_held_unit_prices_new_lines_at_todays()
+    {
+        var held = Priced(0.0825m, ("CT-QTZ", 55.5m, 89m), ("EDGE-OGEE", 36m, 18m));
+        var today = Priced(0.09m, ("CT-QTZ", 60m, 95m), ("EDGE-OGEE", 38m, 20m), ("CUT-FAUCET", 1m, 25m));
+
+        var measured = HeldPrices.Apply(today, held);
+
+        Assert.Equal(new[] { 89m, 18m, 25m }, measured.Lines.Select(l => l.UnitPrice.Amount));
+        Assert.Equal(new[] { 60m, 38m, 1m }, measured.Lines.Select(l => l.Quantity));
+        Assert.Equal(0.0825m, measured.TaxRate);   // the held tax rate
+        Assert.Equal(Usd(60 * 89m + 38 * 18m + 25m), measured.Subtotal);
+    }
+
+    [Fact]
+    public void Same_quantities_give_the_same_total_as_the_held_quote()
+    {
+        var held = Priced(0.0825m, ("CT-QTZ", 55.5m, 89m));
+        Assert.Equal(held.Total, HeldPrices.Apply(Priced(0.0825m, ("CT-QTZ", 55.5m, 120m)), held).Total);
+    }
+
+    [Fact]
+    public void Visit_times_start_tomorrow_in_store_time_and_skip_closed_days()
+    {
+        var now = new DateTimeOffset(2026, 11, 13, 9, 0, 0, TimeSpan.Zero);   // Friday
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");   // CST, UTC-6 in November
+        var slots = VisitSlots.Next(now, zone, [new TimeOnly(13, 0), new TimeOnly(9, 0)], 3, [DayOfWeek.Sunday]);
+
+        Assert.Equal(new[]
+        {
+            new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 14, 19, 0, 0, TimeSpan.Zero),   // Saturday
+            new DateTimeOffset(2026, 11, 16, 15, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 16, 19, 0, 0, TimeSpan.Zero),   // Monday
+        }, slots);
+    }
+}

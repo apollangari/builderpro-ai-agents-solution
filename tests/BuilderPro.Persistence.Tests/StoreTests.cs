@@ -322,6 +322,45 @@ public sealed class DepositStoreTests(PostgresFixture pg)
 
         var found = (await store.ForQuoteAsync("t-acme", quoteId, default))!;
         Assert.Equal(("paid", 362.29m, T0.AddMinutes(5)), (found.Status, found.Amount, found.PaidAt));
+        Assert.Equal(d.Id, (await store.ForProjectAsync("t-acme", d.ProjectId, default))!.Id);
+        Assert.Equal(d.Id, Assert.Single(await store.ListPaidAsync("t-acme", T0, T0.AddDays(1), default)).Id);
+        Assert.Empty(await store.ListPaidAsync("t-globex", T0, T0.AddDays(1), default));
+    }
+}
+
+/// <summary>6b: visits in Postgres: per-slot capacity, reschedule, measured once.</summary>
+[Collection(PostgresCollection.Name)]
+public sealed class VisitStoreTests(PostgresFixture pg)
+{
+    private static readonly DateTimeOffset Slot = new(2026, 11, 14, 15, 0, 0, TimeSpan.Zero);
+
+    private static Visit New(Guid project, DateTimeOffset at, string tenant = "t-acme") =>
+        new(Guid.NewGuid(), tenant, project, "c-alice", at, VisitStatus.Booked, "u-1", Slot.AddDays(-1));
+
+    [Fact]
+    public async Task A_slot_holds_its_capacity_a_reschedule_moves_the_booking_and_measured_is_once()
+    {
+        var store = new PostgresVisitStore(await pg.NewDatabaseAsync());
+        await store.InitializeAsync(default);
+        await store.InitializeAsync(default);
+        var p1 = Guid.NewGuid();
+        var p2 = Guid.NewGuid();
+        Assert.True(await store.BookAsync(New(p1, Slot), 1, default));
+        Assert.False(await store.BookAsync(New(p2, Slot), 1, default));                 // full
+        Assert.True(await store.BookAsync(New(Guid.NewGuid(), Slot, "t-globex"), 1, default));   // other tenant, own capacity
+
+        var moved = New(p1, Slot.AddHours(4));
+        Assert.True(await store.BookAsync(moved, 1, default));                          // reschedule frees the first time
+        Assert.True(await store.BookAsync(New(p2, Slot), 1, default));
+        Assert.Equal(moved.Id, (await store.ForProjectAsync("t-acme", p1, default))!.Id);
+
+        var counts = await store.BookedAsync("t-acme", Slot, Slot.AddDays(1), default);
+        Assert.Equal((1, 1), (counts[Slot], counts[Slot.AddHours(4)]));
+
+        Assert.True(await store.MarkMeasuredAsync("t-acme", moved.Id, "u-2", Slot.AddHours(5), default));
+        Assert.False(await store.MarkMeasuredAsync("t-acme", moved.Id, "u-2", Slot.AddHours(6), default));
+        var done = (await store.ForProjectAsync("t-acme", p1, default))!;
+        Assert.Equal(("measured", Slot.AddHours(5)), (done.Status, done.MeasuredAt));
     }
 }
 

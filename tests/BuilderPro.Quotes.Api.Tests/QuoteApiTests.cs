@@ -50,6 +50,7 @@ public sealed class FakeTenantLookup : ITenantLookup
         ["sue"] = TenantLookup.Ok("t-acme", ["quotes.read", "quotes.write", "sales"]),   // another acme salesperson
         ["boss"] = TenantLookup.Ok("t-acme", ["quotes.read", "sales.report"]),          // acme sales manager
         ["gus"] = TenantLookup.Ok("t-globex", ["quotes.read", "quotes.write", "sales"]), // globex salesperson
+        ["mia"] = TenantLookup.Ok("t-acme", ["quotes.read", "scheduling.write"]),         // 6b: acme measurer / scheduler
     };
 
     public Task<TenantLookup> ResolveAsync(HttpContext http, CancellationToken ct) =>
@@ -130,6 +131,7 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
     public InMemoryQuoteStore Store { get; } = new();
     public InMemoryProjectStore Projects { get; } = new();
     public InMemoryDepositStore Deposits { get; } = new();
+    public InMemoryVisitStore Visits { get; } = new();
     public FakeTenantLookup Tenants { get; } = new();
     public FakeCustomerDirectory Customers { get; }
     private readonly Dictionary<string, string> _settings = [];
@@ -159,6 +161,8 @@ public sealed class QuotesFactory : WebApplicationFactory<Program>
             s.AddSingleton<IProjectStore>(Projects);
             s.RemoveAll<IDepositStore>();
             s.AddSingleton<IDepositStore>(Deposits);
+            s.RemoveAll<IVisitStore>();
+            s.AddSingleton<IVisitStore>(Visits);
             s.RemoveAll<ITenantLookup>();
             s.AddSingleton<ITenantLookup>(Tenants);
             s.RemoveAll<ICustomerDirectory>();
@@ -999,5 +1003,121 @@ public sealed class SalespersonTests
         Assert.Equal(HttpStatusCode.BadRequest, (await f.As("sam").GetAsync("/api/sales/commission?from=2026-12-01T00:00:00Z&to=2026-11-01T00:00:00Z")).StatusCode);
         var gus = (await f.As("gus").GetFromJsonAsync<CommissionReportDto>("/api/sales/commission"))!;
         Assert.Equal(0, Assert.Single(gus.Salespeople).Sales);   // other store: nothing of acme's
+    }
+}
+
+
+/// <summary>6b: book the measure visit, staff record the sizes at the held prices, the customer confirms a change.</summary>
+public sealed class MeasureVisitApiTests
+{
+    private static object Measures(decimal width) => new { countertop = new { countertop = new[] { new { widthIn = width, depthIn = 25m } }, island = new[] { new { widthIn = 72m, depthIn = 36m } } } };
+
+    private static readonly object CompleteAnswers = new
+    {
+        sku = "CT-QTZ",
+        measurements = Measures(120m),
+        choices = new object[] { new { group = "edge", sku = "EDGE-OGEE" }, new { group = "plan", sku = "PLAN-10Y" } },
+    };
+
+    private static readonly DateTimeOffset FirstSlot = new(2026, 11, 14, 15, 0, 0, TimeSpan.Zero);   // Sat 9:00 Central
+
+    private static async Task<ProjectDto> Paid(QuotesFactory f, string sub = "alice")
+    {
+        var p = (await (await f.As(sub).PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        await f.As(sub).PutAsJsonAsync($"/api/projects/{p.Id}/answers", CompleteAnswers);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/quote", null);
+        await f.As(sub).PostAsync($"/api/projects/{p.Id}/accept", null);
+        var d = (await (await f.As(sub).PostAsync($"/api/projects/{p.Id}/deposit", null)).Content.ReadFromJsonAsync<DepositDto>())!;
+        await f.As(sub).PostAsync($"/api/deposits/{d.Id}/pay", null);
+        return (await f.As(sub).GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+    }
+
+    private static async Task Book(QuotesFactory f, Guid id, string sub = "alice", DateTimeOffset? at = null) =>
+        Assert.Equal(HttpStatusCode.OK, (await f.As(sub).PostAsJsonAsync($"/api/projects/{id}/visit", new { start = at ?? FirstSlot })).StatusCode);
+
+    [Fact]
+    public async Task The_customer_books_a_visit_time_and_a_full_time_is_refused()
+    {
+        using var f = new QuotesFactory();
+        f.Configure("Visits:PerSlot", "1");
+        var p = await Paid(f);
+        var slots = (await f.As("alice").GetFromJsonAsync<VisitSlotDto[]>($"/api/projects/{p.Id}/visit/slots"))!;
+        Assert.Equal(FirstSlot, slots[0].Start);
+        Assert.All(slots, s => Assert.True(s.Available));
+
+        await Book(f, p.Id);
+        var after = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
+        Assert.Equal((FirstSlot, "booked"), (after.Visit!.Start, after.Visit.Status));
+
+        var other = await Paid(f, "abe");
+        Assert.False((await f.As("abe").GetFromJsonAsync<VisitSlotDto[]>($"/api/projects/{other.Id}/visit/slots"))![0].Available);
+        var full = await f.As("abe").PostAsJsonAsync($"/api/projects/{other.Id}/visit", new { start = FirstSlot });
+        Assert.Equal(HttpStatusCode.Conflict, full.StatusCode);
+        Assert.Contains("slot_full", await full.Content.ReadAsStringAsync());
+
+        // Moving my own visit frees the first time.
+        await Book(f, p.Id, at: slots[1].Start);
+        await Book(f, other.Id, "abe");
+    }
+
+    [Fact]
+    public async Task No_visit_before_the_deposit_and_only_offered_times()
+    {
+        using var f = new QuotesFactory();
+        var fresh = (await (await f.As("alice").PostAsJsonAsync("/api/projects", new { zip = "62701" })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(HttpStatusCode.Conflict, (await f.As("alice").PostAsJsonAsync($"/api/projects/{fresh.Id}/visit", new { start = FirstSlot })).StatusCode);
+        var p = await Paid(f);
+        Assert.Equal(HttpStatusCode.BadRequest, (await f.As("alice").PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = FirstSlot.AddMinutes(30) })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = FirstSlot })).StatusCode);   // staff without scheduling
+        Assert.Equal(HttpStatusCode.OK, (await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit", new { start = FirstSlot })).StatusCode);    // store scheduler
+    }
+
+    [Fact]
+    public async Task Same_measurements_keep_the_total_and_go_straight_to_install()
+    {
+        using var f = new QuotesFactory();
+        var p = await Paid(f);
+        await Book(f, p.Id);
+        var r = await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var after = (await r.Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(("install", "accepted", true), (after.Stage, after.Quote!.Status, after.Quote.Held));
+        Assert.Equal(p.Quote!.Total, after.Quote.Total);
+        Assert.NotEqual(p.Quote.Number, after.Quote.Number);   // a new numbered (measured) quote
+        Assert.Equal("measured", after.Visit!.Status);
+    }
+
+    [Fact]
+    public async Task A_bigger_kitchen_waits_for_the_customer_to_confirm_the_new_total()
+    {
+        using var f = new QuotesFactory();
+        var p = await Paid(f);
+        await Book(f, p.Id);
+        var measured = (await (await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(144m) })).Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(("confirm", "issued", false), (measured.Stage, measured.Quote!.Status, measured.Quote.Held));
+        Assert.True(measured.Quote.Total > p.Quote!.Total);
+
+        Assert.Equal(HttpStatusCode.Conflict, (await f.As("alice").PostAsync($"/api/projects/{p.Id}/accept", null)).StatusCode);   // locked: Confirm, not Accept
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("mia").PostAsync($"/api/projects/{p.Id}/confirm", null)).StatusCode);   // staff
+        var agent = f.As("alice");
+        agent.DefaultRequestHeaders.Add(AgentCall.Header, "concierge");
+        Assert.Equal(HttpStatusCode.Forbidden, (await agent.PostAsync($"/api/projects/{p.Id}/confirm", null)).StatusCode);
+
+        var ok = await f.As("alice").PostAsync($"/api/projects/{p.Id}/confirm", null);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var confirmed = (await ok.Content.ReadFromJsonAsync<ProjectDto>())!;
+        Assert.Equal(("install", "accepted", true), (confirmed.Stage, confirmed.Quote!.Status, confirmed.Quote.Held));
+    }
+
+    [Fact]
+    public async Task Only_store_staff_record_measurements_after_a_booked_visit()
+    {
+        using var f = new QuotesFactory();
+        var p = await Paid(f);
+        var noVisit = await f.As("mia").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) });
+        Assert.Contains("no_visit", await noVisit.Content.ReadAsStringAsync());
+        await Book(f, p.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("alice").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await f.As("bob").PostAsJsonAsync($"/api/projects/{p.Id}/visit/measured", new { measurements = Measures(120m) })).StatusCode);
     }
 }

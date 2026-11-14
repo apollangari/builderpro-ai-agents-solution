@@ -19,6 +19,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IQuoteStore, PostgresQuoteStore>();
 builder.Services.AddSingleton<IProjectStore, PostgresProjectStore>();   // 2n-f
 builder.Services.AddSingleton<IDepositStore, PostgresDepositStore>();   // 6a
+builder.Services.AddSingleton<IVisitStore, PostgresVisitStore>();       // 6b
 builder.Services.AddBuilderProAuth(builder.Configuration);
 
 // Tenant, customer and scopes: asked from the Identity service (LEARN 2a).
@@ -40,6 +41,7 @@ var app = builder.Build();
 await app.Services.GetRequiredService<IQuoteStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IProjectStore>().InitializeAsync(CancellationToken.None);
 await app.Services.GetRequiredService<IDepositStore>().InitializeAsync(CancellationToken.None);
+await app.Services.GetRequiredService<IVisitStore>().InitializeAsync(CancellationToken.None);
 
 app.UseExceptionHandler();
 app.UseAuthentication();

@@ -113,6 +113,37 @@ describe('WorkspacePage (2n-f)', () => {
     }));
     expect(el.querySelector('[data-testid="held"]')?.textContent).toContain('$302.42');
     expect(el.querySelector('[data-testid="tracker"] [aria-current="step"]')?.textContent).toContain('Visit');
+
+    // 6b: pick a measure-visit time.
+    http.expectOne('/api/projects/p1/visit/slots').flush([
+      { start: '2026-11-14T15:00:00Z', available: true },
+      { start: '2026-11-14T19:00:00Z', available: false },
+    ]);
+    await settle();
+    const slots = el.querySelectorAll<HTMLButtonElement>('[data-testid="visit-slot"]');
+    expect([slots[0].disabled, slots[1].disabled]).toEqual([false, true]);
+    slots[0].click();
+    await settle();
+    const book = http.expectOne((r) => r.url === '/api/projects/p1/visit' && r.method === 'POST');
+    expect(book.request.body).toEqual({ start: '2026-11-14T15:00:00Z' });
+    book.flush({ id: 'v1', start: '2026-11-14T15:00:00Z', status: 'booked', measuredAt: null });
+    await settle();
+    expect(el.querySelector('[data-testid="visit-booked"]')).not.toBeNull();
+  });
+
+  it('a changed measured total waits for the customer to confirm it', async () => {
+    const el = await open(project({
+      stage: 'confirm', quote: { ...issued, number: 1043, total: 6500, held: false },
+      deposit: { id: 'd1', projectId: 'p1', quoteNumber: 1042, quoteTotal: 6048.47, amount: 302.42, currency: 'USD', percent: 5, status: 'paid', paidAt: '2026-11-13T10:05:00Z', checkoutUrl: '/pay/d1' },
+    }));
+    expect(el.querySelector('[data-testid="confirm-measured"]')?.textContent).toContain('$6,500.00');
+    expect(el.querySelector('[data-testid="accept-quote"]')).toBeNull();
+    el.querySelector<HTMLButtonElement>('[data-testid="confirm-quote"]')!.click();
+    await settle();
+    http.expectOne((r) => r.url === '/api/projects/p1/confirm' && r.method === 'POST')
+      .flush(project({ stage: 'install', quote: { ...issued, number: 1043, total: 6500, status: 'accepted', held: true } }));
+    await settle();
+    expect(el.querySelector('[data-testid="order-confirmed"]')).not.toBeNull();
   });
 
   it('an outdated quote offers a new one instead of Accept', async () => {

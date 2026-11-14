@@ -197,6 +197,14 @@ export interface IssuedQuote {
   held?: boolean;
 }
 
+/** The measure visit (6b). Mirrors VisitDto in C#. */
+export interface VisitInfo {
+  id: string;
+  start: string;
+  status: 'booked' | 'measured' | 'cancelled';
+  measuredAt: string | null;
+}
+
 /** The 5 % deposit (6a). Mirrors DepositDto in C#. */
 export interface DepositInfo {
   id: string;
@@ -230,6 +238,8 @@ export interface Project {
   deposit?: DepositInfo | null;
   /** 1i: the salesperson who prepared it for the customer. */
   preparedBy?: string | null;
+  /** 6b: the measure visit. */
+  visit?: VisitInfo | null;
 }
 
 export interface ProjectSummary {

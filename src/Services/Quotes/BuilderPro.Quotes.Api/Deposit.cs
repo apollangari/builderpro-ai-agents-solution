@@ -33,6 +33,9 @@ public interface IDepositStore
     /// <summary>pending -> paid, once. False when it isn't pending (already paid, or not this tenant's).</summary>
     Task<bool> MarkPaidAsync(string tenantId, Guid id, DateTimeOffset at, string paidBy, CancellationToken ct);
 
+    /// <summary>The project's PAID deposit, or null (6b: a measured quote inherits it).</summary>
+    Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct);
+
     /// <summary>Paid deposits of one tenant, paid in [from, to) (1i commission report).</summary>
     Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }
@@ -111,6 +114,15 @@ public sealed class PostgresDepositStore(NpgsqlDataSource db) : IDepositStore
             new { id, tenantId, at = at.UtcDateTime, paidBy }, cancellationToken: ct)) == 1;
     }
 
+    public async Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
+    {
+        await using var conn = await db.OpenConnectionAsync(ct);
+        var row = await conn.QueryFirstOrDefaultAsync<Row>(new CommandDefinition(
+            $"SELECT {Columns} FROM quotes.deposits WHERE tenant_id = @tenantId AND project_id = @projectId AND status = 'paid' ORDER BY paid_at DESC LIMIT 1",
+            new { tenantId, projectId }, cancellationToken: ct));
+        return row?.ToDomain();
+    }
+
     public async Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -179,6 +191,11 @@ public sealed class InMemoryDepositStore : IDepositStore
             _rows[i] = _rows[i] with { Status = DepositStatus.Paid, PaidAt = at, PaidBy = paidBy };
             return Task.FromResult(true);
         }
+    }
+
+    public Task<Deposit?> ForProjectAsync(string tenantId, Guid projectId, CancellationToken ct)
+    {
+        lock (_gate) return Task.FromResult(_rows.Where(d => d.TenantId == tenantId && d.ProjectId == projectId && d.Paid).OrderByDescending(d => d.PaidAt).FirstOrDefault());
     }
 
     public Task<IReadOnlyList<Deposit>> ListPaidAsync(string tenantId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
