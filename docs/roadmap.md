@@ -82,6 +82,11 @@ as "not yet" in the LEARN docs.
 
 ## Decisions
 
+- **Open access (2026-11-14, owner).** A signed-in person doesn't need to be invited to a store to browse and
+  request a quote. Not a member of the store they're on (subdomain or store pick; else Identity:DefaultStore)?
+  Identity's /me joins them as a CUSTOMER automatically: only stores with sign-up open, customer scopes only,
+  a removed membership is never re-admitted, stable customer id. Identity:AutoJoin = false restores
+  invitation / sign-up-link only.
 - **Payments go through Stripe (2026-11-14, owner, 6d).** The old app already integrates with Stripe, so
   BuilderPro needs it too. The simulated provider (6a) stays for development and tests; Stripe Checkout +
   webhook is the real provider.

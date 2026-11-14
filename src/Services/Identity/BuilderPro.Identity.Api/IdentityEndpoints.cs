@@ -80,12 +80,22 @@ public static class IdentityEndpoints
     }
 
     internal static async Task<IResult> GetMeAsync(
-        HttpContext http, ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, IConfiguration config, CancellationToken ct)
+        HttpContext http, ClaimsPrincipal principal, AuthOptions options, IMembershipStore store, TimeProvider clock, IConfiguration config,
+        ITenantCacheInvalidator tenantCache, IConsentStore consents, CancellationToken ct)
     {
         // Store picker (1f): the X-BuilderPro-Tenant header is a hint like the token claim, still
         // checked against active memberships by TenantResolver.
         var user = TenantHint.Apply(http, ClaimsNormalizer.FromPrincipal(principal, options));
         var result = TenantResolver.Resolve(user, await store.FindByUserAsync(user.UserKey, ct), clock.GetUtcNow());
+
+        // Owner (2026-11-14): any signed-in person may browse and ask for a quote. Not a member of the store
+        // they're on (subdomain / store pick), or of any store? They join it as a CUSTOMER, on the same rules
+        // as the public sign-up link (Onboarding.AutoJoinAsync). Staff access is never granted this way.
+        if (result.Outcome is TenantResolution.NoMembership or TenantResolution.HintMismatch
+            && await Onboarding.AutoJoinAsync(user, principal, options, store, config, clock, tenantCache, consents, ct))
+        {
+            result = TenantResolver.Resolve(user, await store.FindByUserAsync(user.UserKey, ct), clock.GetUtcNow());
+        }
 
         return result.Outcome switch
         {

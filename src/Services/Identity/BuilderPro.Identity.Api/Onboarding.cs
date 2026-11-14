@@ -71,6 +71,33 @@ public static class Onboarding
         return Results.Created("/api/identity/me", new JoinStoreResponse("joined", store.Name, store.TenantId, customerId));
     }
 
+    /// <summary>
+    /// Open access (owner, 2026-11-14): a signed-in person who isn't a member of the store they're on joins it
+    /// as a customer automatically. Which store: the hint (subdomain or store pick), else Identity:DefaultStore.
+    /// Same guarantees as the sign-up link: only stores with SignupEnabled; customer scopes only; an existing
+    /// (even revoked or expired) membership is never changed, so a removed customer stays removed.
+    /// Identity:AutoJoin = false turns it off (back to invitation / sign-up link only). True when it joined.
+    /// </summary>
+    internal static async Task<bool> AutoJoinAsync(
+        UserContext user, ClaimsPrincipal principal, AuthOptions auth, IMembershipStore memberships, IConfiguration config, TimeProvider clock,
+        ITenantCacheInvalidator tenantCache, IConsentStore consents, CancellationToken ct)
+    {
+        if (!config.GetValue("Identity:AutoJoin", true)) return false;
+        var stores = config.GetSection("Identity:Stores").Get<StoreOptions[]>() ?? [];
+        var store = user.TenantHint is { } hint
+            ? stores.FirstOrDefault(s => s.TenantId == hint)
+            : stores.FirstOrDefault(s => s.Id == config["Identity:DefaultStore"]);
+        if (store is null || !store.SignupEnabled) return false;
+
+        var existing = (await memberships.FindByUserAsync(user.UserKey, ct)).FirstOrDefault(m => m.TenantId == store.TenantId);
+        if (existing is not null) return false;   // never re-admit or change an existing membership
+
+        await ConsentEndpoints.RecordFromTokenAsync(principal, auth, consents, config, clock, "signup", ct);
+        var membership = await memberships.UpsertAsync(store.TenantId, user.UserKey, CustomerIdFor(store.TenantId, user.UserKey), CustomerScopes(config), expiresAt: null, ct);
+        await tenantCache.InvalidateAsync(membership.UserKey, membership.TenantId, ct);
+        return true;
+    }
+
     /// <summary>Identity:CustomerScopes, each of which must also be in the Identity:Scopes allow-list.</summary>
     internal static string[] CustomerScopes(IConfiguration config)
     {

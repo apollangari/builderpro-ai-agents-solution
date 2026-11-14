@@ -111,9 +111,37 @@ public sealed class IdentityApiTests(IdentityFactory f) : IClassFixture<Identity
     }
 
     [Fact]
-    public async Task Signed_in_but_no_membership_is_403_no_membership()
+    public async Task Anyone_signed_in_joins_the_default_store_as_a_customer_on_first_use()
     {
-        var r = await _f.As("erin").GetAsync("/api/identity/me");
+        // Owner (2026-11-14): any signed-in person may browse and ask for a quote.
+        var me = await _f.As("erin").GetFromJsonAsync<IdentityMeResponse>("/api/identity/me");
+        Assert.Equal("t-acme", me!.TenantId);
+        Assert.Equal(new[] { "quotes.read", "quotes.write" }, me.Scopes);   // customer scopes only, never staff
+        Assert.Equal(Onboarding.CustomerIdFor("t-acme", IdentityFactory.KeyFor("erin")), me.CustomerId);
+        var again = await _f.As("erin").GetFromJsonAsync<IdentityMeResponse>("/api/identity/me");
+        Assert.Equal(me.CustomerId, again!.CustomerId);   // stable, joined once
+    }
+
+    [Fact]
+    public async Task Browsing_another_store_joins_it_as_a_customer_but_never_a_closed_one()
+    {
+        var me = await _f.As("frank", tenant: "t-globex").GetFromJsonAsync<IdentityMeResponse>("/api/identity/me");
+        Assert.Equal(("t-globex", "membership"), (me!.TenantId, me.Source));
+        var closed = await _f.As("gwen", tenant: "t-closed").GetAsync("/api/identity/me");
+        Assert.Equal(HttpStatusCode.Forbidden, closed.StatusCode);   // sign-up closed: no automatic access
+    }
+
+    [Fact]
+    public async Task A_removed_customer_is_not_readmitted_and_auto_join_can_be_switched_off()
+    {
+        var m = await _f.Store.UpsertAsync("t-acme", IdentityFactory.KeyFor("rita"), "c-rita", ["quotes.read"], null, default);
+        await _f.Store.RevokeAsync(m.Id, "removed", default);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _f.As("rita").GetAsync("/api/identity/me")).StatusCode);
+
+        using var closed = _f.WithWebHostBuilder(b => b.UseSetting("Identity:AutoJoin", "false"));
+        var client = closed.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Sub", "nobody");
+        var r = await client.GetAsync("/api/identity/me");
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
         Assert.Equal("no_membership", await CodeOf(r));
     }
@@ -127,9 +155,9 @@ public sealed class IdentityApiTests(IdentityFactory f) : IClassFixture<Identity
     }
 
     [Fact]
-    public async Task A_token_tenant_without_a_membership_is_refused()
+    public async Task A_token_tenant_of_a_closed_store_without_a_membership_is_refused()
     {
-        var r = await _f.As("alice", tenant: "t-globex").GetAsync("/api/identity/me");
+        var r = await _f.As("alice", tenant: "t-closed").GetAsync("/api/identity/me");
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
         Assert.Equal("tenant_not_permitted", await CodeOf(r));
     }
