@@ -32,6 +32,8 @@ var keycloakAdminPassword = builder.AddParameter("keycloak-admin-password", valu
 var identityClientSecret = builder.AddParameter("keycloak-identity-client-secret", value: "builderpro-identity-dev-secret", secret: true);
 // 3c: the Assistant's client for on-behalf-of token exchange. Dev default; set a real one in user secrets.
 var assistantClientSecret = builder.AddParameter("keycloak-assistant-client-secret", value: "builderpro-assistant-dev-secret", secret: true);
+// 4a: the scheduling agent's client for on-behalf-of token exchange. Dev default; set a real one in user secrets.
+var schedulingClientSecret = builder.AddParameter("keycloak-scheduling-client-secret", value: "builderpro-scheduling-dev-secret", secret: true);
 
 var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26.4")
     .WithArgs("start-dev", "--import-realm")
@@ -40,6 +42,7 @@ var keycloak = builder.AddContainer("keycloak", "quay.io/keycloak/keycloak", "26
     .WithEnvironment("KC_HEALTH_ENABLED", "true")
     .WithEnvironment("IDENTITY_CLIENT_SECRET", identityClientSecret)   // read by the realm import
     .WithEnvironment("ASSISTANT_CLIENT_SECRET", assistantClientSecret) // 3c: on-behalf-of client
+    .WithEnvironment("SCHEDULING_CLIENT_SECRET", schedulingClientSecret) // 4a: on-behalf-of client
     // Realm (clients, test users, tenant mapper) imported on first start.
     .WithBindMount("../../../infra/keycloak/realms", "/opt/keycloak/data/import", isReadOnly: true)
     // 1e: Navy & Sand login, sign-up and password pages (CSS on top of keycloak.v2).
@@ -246,6 +249,27 @@ var gateway = builder.AddProject<Projects.BuilderPro_Gateway>("gateway")
     .WaitFor(identity)
     .WaitFor(catalog)
     .WaitFor(quotes);
+
+// ---------------------------------------------------------------------------
+// 4a: the scheduling agent (Python, LangGraph) over A2A. The concierge calls it with a token issued FOR
+// it (on-behalf-of), and it calls the platform through the gateway with a token it exchanged again.
+// Telemetry goes to this dashboard (OTLP), so a concierge turn is one trace across .NET and Python.
+// Dependencies: pip from agents/scheduling/requirements.txt into its .venv.
+// ---------------------------------------------------------------------------
+var schedulingAgent = builder.AddUvicornApp("scheduling-agent", "../../../agents/scheduling", "app.asgi:app")
+    .WithPip()
+    .WithEnvironment("AUTH_AUTHORITY", realmUrl)
+    .WithEnvironment("SCHEDULING_CLIENT_SECRET", schedulingClientSecret)
+    .WithEnvironment("PLATFORM_BASE_URL", gateway.GetEndpoint("http"))
+    .WithEnvironment("ENVIRONMENT", "Development")
+    .WithEnvironment("OTEL_SERVICE_NAME", "scheduling-agent")
+    .WithHttpHealthCheck("/health")
+    .WaitFor(keycloak);
+schedulingAgent.WithEnvironment("PUBLIC_URL", schedulingAgent.GetEndpoint("http"));
+
+assistant
+    .WithEnvironment("Assistant__SchedulingAgent__Enabled", "true")
+    .WithEnvironment("Assistant__SchedulingAgent__BaseUrl", schedulingAgent.GetEndpoint("http"));
 
 // ---------------------------------------------------------------------------
 // Angular. FIXED port 4200 because Keycloak's client only accepts redirects back to

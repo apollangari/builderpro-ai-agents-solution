@@ -303,6 +303,18 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "audience: builderpro-scheduling",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "builderpro-scheduling",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -351,6 +363,36 @@
             "id.token.claim": "true",
             "access.token.claim": "true",
             "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "builderpro-scheduling",
+      "name": "BuilderPro scheduling agent (4a, on-behalf-of)",
+      "description": "Confidential client of the Python scheduling agent. Accepts tokens for itself (aud builderpro-scheduling, issued to the Assistant on the customer's behalf) and exchanges them for builderpro-api tokens for the same user.",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${SCHEDULING_CLIENT_SECRET:builderpro-scheduling-dev-secret}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "attributes": {
+        "standard.token.exchange.enabled": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience: builderpro-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "builderpro-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
         }
