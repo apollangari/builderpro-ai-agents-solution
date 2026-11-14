@@ -134,7 +134,8 @@ const HOURS = [
     .tab.active { color: var(--bp-accent); border-bottom-color: var(--bp-accent); font-weight: 600; }
     .form { display: grid; gap: .8rem; }
     .form label { display: grid; gap: .3rem; font-weight: 600; }
-    .form input, .form select {
+    /* Text fields and selects only: radios and checkboxes keep their own size (owner: radios were stretched). */
+    .form input:not([type='radio']):not([type='checkbox']), .form select {
       width: 100%; box-sizing: border-box; min-width: 0;
       min-height: var(--bp-tap); padding: 0 .8rem; border-radius: var(--bp-radius-md); border: 1px solid var(--bp-border-strong);
       background: var(--bp-surface); color: var(--bp-ink); font: inherit; font-weight: 400;
@@ -145,7 +146,8 @@ const HOURS = [
     @media (max-width: 640px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
     fieldset { border: 1px solid var(--bp-border); border-radius: var(--bp-radius-md); padding: .6rem .9rem; display: grid; gap: .2rem; }
     legend { font-weight: 600; padding: 0 .3rem; }
-    .form .radio { display: flex; align-items: center; gap: .5rem; font-weight: 400; min-height: 2.25rem; }
+    .form .radio { display: flex; align-items: center; justify-content: flex-start; gap: .6rem; font-weight: 400; min-height: 2.25rem; cursor: pointer; }
+    .form .radio input { width: 1.1rem; height: 1.1rem; margin: 0; flex: none; accent-color: var(--bp-accent); }
     .hint { font-weight: 400; font-size: .85rem; color: var(--bp-ink-muted); }
     .field-error { margin: 0; color: var(--bp-danger, #b3261e); }
     .ok { margin: 0; color: var(--bp-accent); font-weight: 600; }
