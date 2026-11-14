@@ -5,7 +5,8 @@ using BuilderPro.Security;
 namespace BuilderPro.Quotes.Api;
 
 public sealed record VisitDto(Guid Id, DateTimeOffset Start, string Status, DateTimeOffset? MeasuredAt);
-public sealed record VisitSlotDto(DateTimeOffset Start, bool Available);
+/// <summary>FitsHours: inside the customer's contact hours (null when unknown, e.g. for staff).</summary>
+public sealed record VisitSlotDto(DateTimeOffset Start, bool Available, bool? FitsHours = null);
 public sealed record BookVisitRequest(DateTimeOffset? Start);
 public sealed record MeasuredRequest(MeasurementInput? Measurements);
 
@@ -35,7 +36,8 @@ public static class VisitEndpoints
     }
 
     internal static async Task<IResult> SlotsAsync(
-        Guid id, HttpContext http, ITenantLookup tenants, IProjectStore projects, IVisitStore visits, IConfiguration config, TimeProvider clock, CancellationToken ct)
+        Guid id, HttpContext http, ITenantLookup tenants, IProjectStore projects, IVisitStore visits, IProfileReader profiles, IConfiguration config,
+        TimeProvider clock, CancellationToken ct)
     {
         var (tenant, project, problem) = await ProjectEndpoints.LoadAsync(id, http, tenants, projects, QuoteEndpoints.ReadScope, ct);
         if (problem is not null) return problem;
@@ -45,8 +47,11 @@ public static class VisitEndpoints
         var booked = await visits.BookedAsync(tenant.TenantId!, slots[0], slots[^1].AddMinutes(1), ct);
         var mine = await visits.ForProjectAsync(tenant.TenantId!, project.Id, ct);
         var perSlot = PerSlot(config);
+        // Gap fix (6b): the customer's contact hours mark the times that suit them (same rule as calls and the 4a agent).
+        var hours = tenant.CustomerId is null ? null : (await profiles.MineAsync(http, ct))?.ContactHours;
+        var zone = CallEndpoints.StoreZone(config, tenant.TenantId!);
         return Results.Ok(slots.Select(s =>
-            new VisitSlotDto(s, mine?.Start == s || booked.GetValueOrDefault(s) < perSlot)));
+            new VisitSlotDto(s, mine?.Start == s || booked.GetValueOrDefault(s) < perSlot, hours is null ? null : CallWindows.VisitFits(s, hours, zone))));
     }
 
     internal static async Task<IResult> BookAsync(

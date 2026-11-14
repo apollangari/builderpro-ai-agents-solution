@@ -7,6 +7,8 @@ import { VisitInfo } from '../quote/guided';
 interface Slot {
   start: string;
   available: boolean;
+  /** Inside the customer's contact hours (null when unknown). */
+  fitsHours?: boolean | null;
 }
 
 /**
@@ -28,6 +30,7 @@ interface Slot {
         </div>
       }
       <p>Pick a time for the measure visit. We confirm the sizes on site; your price per unit stays held.</p>
+      @if (anyOutside()) { <p class="muted small" data-testid="hours-legend">Times outside your contact hours are shown faded; you can still pick them.</p> }
       @if (slots.error()) {
         <div class="warning" role="alert"><span>{{ describe(slots.error()) }}</span></div>
       } @else if (slots.hasValue()) {
@@ -36,7 +39,8 @@ interface Slot {
             <div class="day">
               <span class="label">{{ day.label }}</span>
               @for (s of day.slots; track s.start) {
-                <button type="button" class="btn slot" [disabled]="!s.available || booking.isLoading()" (click)="book(s.start)" data-testid="visit-slot">
+                <button type="button" class="btn slot" [class.outside]="s.fitsHours === false" [disabled]="!s.available || booking.isLoading()" (click)="book(s.start)" data-testid="visit-slot"
+                        [attr.title]="s.fitsHours === false ? 'Outside your contact hours' : null">
                   {{ s.start | date: 'h:mm a' }}
                 </button>
               }
@@ -57,6 +61,8 @@ interface Slot {
     .day { display: grid; gap: .3rem; align-content: start; }
     .label { font-weight: 600; font-size: .9rem; }
     .slot { justify-content: center; }
+    .slot.outside { opacity: .55; border-style: dashed; }
+    .small { font-size: .85rem; }
     .suggested { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem .8rem; margin-bottom: .6rem;
                  border-radius: var(--bp-radius-md); background: var(--bp-accent-soft); }
   `,
@@ -77,6 +83,7 @@ export class VisitBookingComponent {
   protected readonly changing = signal(false);
   /** A week's worth first, so the card doesn't scroll; the rest on request. */
   protected readonly showAll = signal(false);
+  protected readonly anyOutside = computed(() => this.slots.hasValue() && this.slots.value().some((s) => s.fitsHours === false));
   protected readonly shownDays = computed(() => (this.showAll() ? this.days() : this.days().slice(0, 6)));
   protected readonly slots = httpResource<Slot[]>(() =>
     !this.visit() || this.changing() ? `/api/projects/${encodeURIComponent(this.projectId())}/visit/slots` : undefined,

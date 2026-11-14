@@ -1083,6 +1083,10 @@ public sealed class MeasureVisitApiTests
         var slots = (await f.As("alice").GetFromJsonAsync<VisitSlotDto[]>($"/api/projects/{p.Id}/visit/slots"))!;
         Assert.Equal(FirstSlot, slots[0].Start);
         Assert.All(slots, s => Assert.True(s.Available));
+        // alice's contact hours are business: Saturday doesn't suit her, weekdays do.
+        Assert.Equal(false, slots[0].FitsHours);
+        Assert.Contains(slots, s => s.FitsHours == true);
+        Assert.All((await f.As("mia").GetFromJsonAsync<VisitSlotDto[]>($"/api/projects/{p.Id}/visit/slots"))!, s => Assert.Null(s.FitsHours));
 
         await Book(f, p.Id);
         var after = (await f.As("alice").GetFromJsonAsync<ProjectDto>($"/api/projects/{p.Id}"))!;
